@@ -1,0 +1,420 @@
+--- a/SP/code/client/cl_scrn.c
++++ b/SP/code/client/cl_scrn.c
+@@ -579,9 +579,9 @@
+ 	if( uivm || com_dedicated->integer )
+ 	{
+ 		// XXX
+-		int in_anaglyphMode = Cvar_VariableIntegerValue("r_anaglyphMode");
++		int in_anaglyphMode = Cvar_VariableIntegerValue("r_anaglyphMode") || Cvar_VariableIntegerValue("r_stereoMode") == 2;
+ 		// if running in stereo, we need to draw the frame twice
+-		if ( cls.glconfig.stereoEnabled || in_anaglyphMode) {
++		if ( cls.glconfig.stereoEnabled || Cvar_VariableIntegerValue("r_stereoMode") == 1 || in_anaglyphMode) {
+ 			SCR_DrawScreenField( STEREO_LEFT );
+ 			SCR_DrawScreenField( STEREO_RIGHT );
+ 		} else {
+--- a/SP/code/renderer/tr_backend.c
++++ b/SP/code/renderer/tr_backend.c
+@@ -386,16 +386,19 @@
+ 	qglMatrixMode( GL_MODELVIEW );
+ 
+ 	// set the window clipping
+-	qglViewport(    backEnd.viewParms.viewportX,
+-					backEnd.viewParms.viewportY,
+-					backEnd.viewParms.viewportWidth,
+-					backEnd.viewParms.viewportHeight );
+-
++	if ( r_stereoMode->integer == 1 && r_stereoHalf->integer ) {
++		// half-SBS: the full picture squeezed into half of the window width
++		qglViewport( backEnd.viewParms.viewportX / 2 + backEnd.sbsOffsetX, backEnd.viewParms.viewportY,
++					 backEnd.viewParms.viewportWidth / 2, backEnd.viewParms.viewportHeight );
++		qglScissor( backEnd.viewParms.viewportX / 2 + backEnd.sbsOffsetX, backEnd.viewParms.viewportY,
++					backEnd.viewParms.viewportWidth / 2, backEnd.viewParms.viewportHeight );
++	} else {
++		qglViewport( backEnd.viewParms.viewportX + backEnd.sbsOffsetX, backEnd.viewParms.viewportY,
++					 backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
+ // TODO: insert handling for widescreen?  (when looking through camera)
+-	qglScissor(     backEnd.viewParms.viewportX,
+-					backEnd.viewParms.viewportY,
+-					backEnd.viewParms.viewportWidth,
+-					backEnd.viewParms.viewportHeight );
++		qglScissor( backEnd.viewParms.viewportX + backEnd.sbsOffsetX, backEnd.viewParms.viewportY,
++					backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
++	}
+ }
+ 
+ /*
+@@ -1104,8 +1107,12 @@
+ 	backEnd.projection2D = qtrue;
+ 
+ 	// set 2D virtual screen size
+-	qglViewport( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
+-	qglScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
++	{
++		int w = ( r_stereoMode->integer == 1 && r_stereoHalf->integer ) ? glConfig.vidWidth / 2 : glConfig.vidWidth;
++
++		qglViewport( backEnd.sbsOffsetX, 0, w, glConfig.vidHeight );
++		qglScissor( backEnd.sbsOffsetX, 0, w, glConfig.vidHeight );
++	}
+ 	qglMatrixMode( GL_PROJECTION );
+ 	qglLoadIdentity();
+ 	qglOrtho( 0, glConfig.vidWidth, glConfig.vidHeight, 0, 0, 1 );
+@@ -1460,6 +1467,15 @@
+ 
+ 	cmd = (const drawBufferCommand_t *)data;
+ 
++	// one eye is vidWidth wide, or half of it in half-SBS (squeezed) mode
++	backEnd.sbsOffsetX = ( ( r_stereoMode->integer == 1 ) && cmd->stereoFrame == STEREO_RIGHT ) ?
++		( r_stereoHalf->integer ? glConfig.vidWidth / 2 : glConfig.vidWidth ) : 0;
++	backEnd.projection2D = qfalse;	// the next eye must set its own 2D viewport
++
++	if ( r_fboActive ) {
++		qglBindFramebuffer( GL_FRAMEBUFFER, r_fbo );
++	}
++
+ #ifndef USE_OPENGLES
+ 	qglDrawBuffer( cmd->buffer );
+ #endif
+@@ -1600,6 +1616,42 @@
+ 
+ /*
+ =============
++RB_PresentFbo
++
++Draws the offscreen picture (r_renderScale) over the whole window.
++=============
++*/
++void RB_PresentFbo( void ) {
++	qglBindFramebuffer( GL_FRAMEBUFFER, 0 );
++	qglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
++	qglViewport( 0, 0, r_nativeWidth, r_nativeHeight );
++	qglScissor( 0, 0, r_nativeWidth, r_nativeHeight );
++
++	qglMatrixMode( GL_PROJECTION );
++	qglLoadIdentity();
++	qglOrtho( 0, 1, 0, 1, -1, 1 );
++	qglMatrixMode( GL_MODELVIEW );
++	qglLoadIdentity();
++
++	GL_State( GLS_DEPTHTEST_DISABLE );
++	GL_Cull( CT_TWO_SIDED );
++
++	qglBindTexture( GL_TEXTURE_2D, r_fboTex );
++	glState.currenttextures[glState.currenttmu] = -1;	// not the texture GL_Bind thinks it is
++
++	qglColor4f( 1, 1, 1, 1 );
++	qglBegin( GL_QUADS );
++	qglTexCoord2f( 0, 0 );	qglVertex2f( 0, 0 );
++	qglTexCoord2f( 1, 0 );	qglVertex2f( 1, 0 );
++	qglTexCoord2f( 1, 1 );	qglVertex2f( 1, 1 );
++	qglTexCoord2f( 0, 1 );	qglVertex2f( 0, 1 );
++	qglEnd();
++
++	backEnd.projection2D = qfalse;
++}
++
++/*
++=============
+ RB_SwapBuffers
+ 
+ =============
+@@ -1646,6 +1698,10 @@
+ 
+ 	GLimp_LogComment( "***************** RB_SwapBuffers *****************\n\n\n" );
+ 
++	if ( r_fboActive ) {
++		RB_PresentFbo();
++	}
++
+ 	GLimp_EndFrame();
+ 
+ 	backEnd.projection2D = qfalse;
+--- a/SP/code/renderer/tr_cmds.c
++++ b/SP/code/renderer/tr_cmds.c
+@@ -241,6 +241,17 @@
+ #define MODE_GREEN_MAGENTA 4
+ #define MODE_MAX	MODE_GREEN_MAGENTA
+ 
++/*
++r_stereoMode 2 is anaglyph; without an explicit r_anaglyphMode it uses red/cyan.
++*/
++static int R_AnaglyphMode( void )
++{
++	if ( r_stereoMode->integer == 2 && !r_anaglyphMode->integer )
++		return MODE_RED_CYAN;
++
++	return r_anaglyphMode->integer;
++}
++
+ void R_SetColorMode(GLboolean *rgba, stereoFrame_t stereoFrame, int colormode)
+ {
+ 	rgba[0] = rgba[1] = rgba[2] = rgba[3] = GL_TRUE;
+@@ -479,7 +490,19 @@
+ 	}
+ 
+ #ifndef USE_OPENGLES
+-	if (glConfig.stereoEnabled) {
++	if (( r_stereoMode->integer == 1 )) {
++		// both eyes go to the same back buffer, one swap per frame
++		if( stereoFrame != STEREO_LEFT && stereoFrame != STEREO_RIGHT )
++			ri.Error( ERR_FATAL, "RE_BeginFrame: side-by-side stereo, but stereoFrame was %i", stereoFrame );
++
++		if( !(cmd = R_GetCommandBuffer(sizeof(*cmd))) )
++			return;
++
++		cmd->commandId = RC_DRAW_BUFFER;
++		cmd->buffer = (int)GL_BACK;
++		cmd->stereoFrame = stereoFrame;
++	}
++	else if (glConfig.stereoEnabled) {
+ 		if( !(cmd = R_GetCommandBuffer(sizeof(*cmd))) )
+ 			return;
+ 			
+@@ -494,7 +517,7 @@
+ 	}
+ 	else
+ 	{
+-		if(r_anaglyphMode->integer)
++		if(R_AnaglyphMode())
+ 		{
+ 			if(r_anaglyphMode->modified)
+ 			{
+@@ -533,7 +556,7 @@
+ 			else
+ 				ri.Error( ERR_FATAL, "RE_BeginFrame: Stereo is enabled, but stereoFrame was %i", stereoFrame );
+ 
+-			R_SetColorMode(colcmd->rgba, stereoFrame, r_anaglyphMode->integer);
++			R_SetColorMode(colcmd->rgba, stereoFrame, R_AnaglyphMode());
+ 			colcmd->commandId = RC_COLORMASK;
+ 		}
+ 		else
+--- a/SP/code/renderer/tr_init.c
++++ b/SP/code/renderer/tr_init.c
+@@ -64,6 +64,13 @@
+ cvar_t  *r_znear;
+ cvar_t	*r_zproj;
+ cvar_t	*r_stereoSeparation;
++cvar_t	*r_stereoMode;
++cvar_t	*r_stereoConvergence;
++cvar_t	*r_stereoHalf;
++cvar_t	*r_renderScale;
++qboolean	r_fboActive;
++GLuint	r_fbo, r_fboTex, r_fboDepth;
++int	r_nativeWidth, r_nativeHeight;
+ cvar_t  *r_zfar;
+ 
+ cvar_t  *r_skipBackEnd;
+@@ -282,6 +289,19 @@
+ 
+ 		GLimp_Init( qtrue );
+ 
++		// render scale: draw into a smaller offscreen buffer and upscale it to the window at the end of
++		// the frame (cheaper on weak GPUs). The game sees the smaller size.
++		r_nativeWidth = glConfig.vidWidth;
++		r_nativeHeight = glConfig.vidHeight;
++		R_FboInit();
++
++		// side-by-side stereo: the game sees one eye (half of the window); each eye is drawn
++		// into its own half, so HUD, menu and console are laid out and drawn per eye
++		if ( r_stereoMode->integer == 1 && !r_stereoHalf->integer ) {
++			glConfig.vidWidth /= 2;
++			glConfig.windowAspect /= 2;
++		}
++
+ 		// OpenGL driver constants
+ 		qglGetIntegerv( GL_MAX_TEXTURE_SIZE, &temp );
+ 		glConfig.maxTextureSize = temp;
+@@ -1274,7 +1294,14 @@
+ 	r_znear = ri.Cvar_Get( "r_znear", "4", CVAR_CHEAT );
+ 	ri.Cvar_CheckRange( r_znear, 0.001f, 200, qfalse );
+ 	r_zproj = ri.Cvar_Get( "r_zproj", "64", CVAR_ARCHIVE );
+-	r_stereoSeparation = ri.Cvar_Get( "r_stereoSeparation", "64", CVAR_ARCHIVE );
++	r_stereoSeparation = ri.Cvar_Get( "r_stereoSeparation", "1", CVAR_ARCHIVE );
++	r_stereoMode = ri.Cvar_Get( "r_stereoMode", "0", CVAR_ARCHIVE | CVAR_LATCH );
++	ri.Cvar_CheckRange( r_stereoMode, 0, 2, qtrue );
++	r_stereoHalf = ri.Cvar_Get( "r_stereoHalf", "0", CVAR_ARCHIVE | CVAR_LATCH );
++	r_renderScale = ri.Cvar_Get( "r_renderScale", "1", CVAR_ARCHIVE | CVAR_LATCH );
++	ri.Cvar_CheckRange( r_renderScale, 0.25f, 1, qfalse );
++	r_stereoConvergence = ri.Cvar_Get( "r_stereoConvergence", "64", CVAR_ARCHIVE );
++	ri.Cvar_CheckRange( r_stereoConvergence, 1, 4096, qfalse );
+ //----(SA)	added
+ 	r_zfar = ri.Cvar_Get( "r_zfar", "0", CVAR_CHEAT );
+ //----(SA)	end
+@@ -1500,6 +1527,79 @@
+ }
+ 
+ /*
++==================
++R_FboInit
++
++Creates the offscreen buffer for r_renderScale < 1 and makes the game see its size.
++Leaves r_fboActive false (full resolution) when the scale is 1 or FBOs are not available.
++==================
++*/
++void R_FboInit( void ) {
++	int w, h;
++	GLenum status;
++
++	r_fboActive = qfalse;
++	r_fbo = r_fboTex = r_fboDepth = 0;
++
++	if ( r_renderScale->value >= 0.99f ) {
++		return;
++	}
++	if ( !qglGenFramebuffers || !qglBindFramebuffer || !qglFramebufferTexture2D || !qglGenRenderbuffers ) {
++		ri.Printf( PRINT_ALL, "r_renderScale: framebuffer objects not available, using full resolution\n" );
++		return;
++	}
++
++	w = ( (int)( r_nativeWidth * r_renderScale->value ) ) & ~1;
++	h = ( (int)( r_nativeHeight * r_renderScale->value ) ) & ~1;
++	if ( w < 320 ) w = 320;
++	if ( h < 240 ) h = 240;
++
++	qglGenTextures( 1, &r_fboTex );
++	qglBindTexture( GL_TEXTURE_2D, r_fboTex );
++	qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
++	qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
++	qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
++	qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
++	qglTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL );
++
++	qglGenRenderbuffers( 1, &r_fboDepth );
++	qglBindRenderbuffer( GL_RENDERBUFFER, r_fboDepth );
++	qglRenderbufferStorage( GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h );
++
++	qglGenFramebuffers( 1, &r_fbo );
++	qglBindFramebuffer( GL_FRAMEBUFFER, r_fbo );
++	qglFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, r_fboTex, 0 );
++	qglFramebufferRenderbuffer( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, r_fboDepth );
++	qglFramebufferRenderbuffer( GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, r_fboDepth );
++	status = qglCheckFramebufferStatus( GL_FRAMEBUFFER );
++	qglBindFramebuffer( GL_FRAMEBUFFER, 0 );
++	qglBindTexture( GL_TEXTURE_2D, 0 );
++
++	if ( status != GL_FRAMEBUFFER_COMPLETE ) {
++		ri.Printf( PRINT_ALL, "r_renderScale: framebuffer incomplete (0x%x), using full resolution\n", status );
++		R_FboShutdown();
++		return;
++	}
++
++	r_fboActive = qtrue;
++	glConfig.vidWidth = w;
++	glConfig.vidHeight = h;
++	ri.Printf( PRINT_ALL, "r_renderScale %.2f: rendering %dx%d, window %dx%d\n",
++		r_renderScale->value, w, h, r_nativeWidth, r_nativeHeight );
++}
++
++void R_FboShutdown( void ) {
++	if ( r_fbo && qglDeleteFramebuffers ) {
++		qglBindFramebuffer( GL_FRAMEBUFFER, 0 );
++		qglDeleteFramebuffers( 1, &r_fbo );
++		qglDeleteRenderbuffers( 1, &r_fboDepth );
++		qglDeleteTextures( 1, &r_fboTex );
++	}
++	r_fbo = r_fboTex = r_fboDepth = 0;
++	r_fboActive = qfalse;
++}
++
++/*
+ ===============
+ RE_Shutdown
+ ===============
+@@ -1528,6 +1628,11 @@
+ 		R_DeleteTextures();
+ 	}
+ 
++	// the offscreen buffer lives as long as the window (glConfig keeps the scaled size until then)
++	if ( destroyWindow ) {
++		R_FboShutdown();
++	}
++
+ 	R_DoneFreeType();
+ 
+ 	// shut down platform specific OpenGL stuff
+--- a/SP/code/renderer/tr_local.h
++++ b/SP/code/renderer/tr_local.h
+@@ -43,6 +43,7 @@
+ QGL_DESKTOP_1_1_PROCS;
+ QGL_DESKTOP_1_1_FIXED_FUNCTION_PROCS;
+ QGL_3_0_PROCS;
++QGL_ARB_framebuffer_object_PROCS;
+ #undef GLE
+ 
+ #ifdef USE_OPENGLES
+@@ -1020,6 +1021,7 @@
+ 	qboolean	doneSurfaces;   // done any 3d surfaces already
+ #endif
+ 	trRefEntity_t entity2D;     // currentEntity will point at this when doing 2D rendering
++	int			sbsOffsetX;		// side-by-side stereo: x offset of the current eye in the window
+ } backEndState_t;
+ 
+ /*
+@@ -1163,7 +1165,17 @@
+ 
+ extern cvar_t   *r_znear;               // near Z clip plane
+ extern cvar_t	*r_zproj;		// z distance of projection plane
+-extern cvar_t	*r_stereoSeparation;	// separation of cameras for stereo rendering
++extern cvar_t	*r_stereoSeparation;	// eye offset in world units (0 = no stereo parallax)
++extern cvar_t	*r_stereoMode;		// 0 = off, 1 = side-by-side, 2 = anaglyph
++extern cvar_t	*r_stereoHalf;		// SBS: 1 = squeezed full-width picture per eye (for 3D TVs), 0 = one-eye aspect
++extern cvar_t	*r_stereoConvergence;	// distance of the zero-parallax plane
++extern cvar_t	*r_renderScale;		// 3D/2D rendering resolution relative to the window (< 1 renders to an FBO and upscales)
++extern qboolean	r_fboActive;
++extern GLuint	r_fbo, r_fboTex;
++extern int	r_nativeWidth, r_nativeHeight;
++void R_FboInit( void );
++void R_FboShutdown( void );
++void RB_PresentFbo( void );
+ extern cvar_t   *r_zfar;                // far Z clip plane
+ 
+ extern cvar_t   *r_stencilbits;         // number of desired stencil bits
+@@ -1787,6 +1799,7 @@
+ typedef struct {
+ 	int commandId;
+ 	int buffer;
++	int stereoFrame;	// only valid in side-by-side stereo
+ } drawBufferCommand_t;
+ 
+ typedef struct {
+--- a/SP/code/renderer/tr_main.c
++++ b/SP/code/renderer/tr_main.c
+@@ -864,11 +864,13 @@
+ 
+ 	if(stereoSep != 0)
+ 	{
+-		if(dest->stereoFrame == STEREO_LEFT)
+-			stereoSep = zProj / stereoSep;
+-		else if(dest->stereoFrame == STEREO_RIGHT)
+-			stereoSep = zProj / -stereoSep;
+-		else
++		// eye offset (world units) is r_stereoSeparation at the convergence distance;
++		// the first person weapon passes a smaller zProj and so gets a proportionally smaller offset
++		stereoSep *= zProj / r_stereoConvergence->value;
++
++		if(dest->stereoFrame == STEREO_RIGHT)
++			stereoSep = -stereoSep;
++		else if(dest->stereoFrame != STEREO_LEFT)
+ 			stereoSep = 0;
+ 	}
+ 
+@@ -1750,7 +1752,7 @@
+ 	// set viewParms.world
+ 	R_RotateForViewer();
+ 
+-	R_SetupProjection(&tr.viewParms, r_zproj->value, qtrue);
++	R_SetupProjection(&tr.viewParms, tr.viewParms.stereoFrame != STEREO_CENTER ? r_stereoConvergence->value : r_zproj->value, qtrue);
+ 
+ 	R_GenerateDrawSurfs();
+ 
+--- a/SP/code/renderer/tr_scene.c
++++ b/SP/code/renderer/tr_scene.c
+@@ -523,7 +523,8 @@
+ 	parms.fovX = tr.refdef.fov_x;
+ 	parms.fovY = tr.refdef.fov_y;
+ 
+-	parms.stereoFrame = tr.refdef.stereoFrame;
++	// UI scenes (model previews, menu logo) sit a few units from the camera: no stereo parallax
++	parms.stereoFrame = ( tr.refdef.rdflags & RDF_NOWORLDMODEL ) ? STEREO_CENTER : tr.refdef.stereoFrame;
+ 
+ 	VectorCopy( fd->vieworg, parms.or.origin );
+ 	VectorCopy( fd->viewaxis[0], parms.or.axis[0] );

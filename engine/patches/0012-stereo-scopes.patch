@@ -1,0 +1,178 @@
+--- a/SP/code/cgame/cg_draw.c
++++ b/SP/code/cgame/cg_draw.c
+@@ -2066,6 +2066,7 @@
+ 	}
+ 
+ 
++	CG_SetEdgePlacement( qtrue );
+ 	if ( weap == WP_SNIPERRIFLE ) {
+ 		// sides
+ 		if ( cg_fixedAspect.integer ) {
+@@ -2101,6 +2102,7 @@
+ 			CG_FillRect( 560, 0, 80, 480, color );
+ 		}
+ 
++		CG_SetEdgePlacement( qfalse );
+ 		// center
+ 		if ( cg_fixedAspect.integer ) {
+ 			CG_SetScreenPlacement(PLACE_CENTER, PLACE_CENTER);
+@@ -2166,6 +2168,7 @@
+ 			CG_FillRect( 560, 0, 80, 480, color );
+ 		}
+ 
++		CG_SetEdgePlacement( qfalse );
+ 		// center
+ 		if ( cg_fixedAspect.integer ) {
+ 			CG_SetScreenPlacement(PLACE_CENTER, PLACE_CENTER);
+@@ -2238,6 +2241,7 @@
+ 			CG_FillRect( 560, 0, 80, 480, color );
+ 		}
+ 
++		CG_SetEdgePlacement( qfalse );
+ 		// center
+ 		if ( cg_fixedAspect.integer ) {
+ 			CG_SetScreenPlacement(PLACE_CENTER, PLACE_CENTER);
+@@ -2269,6 +2273,8 @@
+ 		CG_FillRect( 320, 241, 1, 87, color );   // bot center top
+ 		CG_FillRect( 319, 327, 3, 151, color );  // bot center bot
+ 	}
++
++	CG_SetEdgePlacement( qfalse );
+ }
+ 
+ /*
+@@ -2282,6 +2288,7 @@
+ 	float x, y, w = 320, h = 240;
+ 	float mask = 0, lb = 0;
+ 
++	CG_SetEdgePlacement( qtrue );	// the side masks are anchored to the screen edges, not to the centred HUD block
+ 	if ( cg_fixedAspect.integer ) {
+ 		if ( cgs.glconfig.vidWidth * 480.0 > cgs.glconfig.vidHeight * 640.0 ) {
+ 			mask = 0.5 * ( ( cgs.glconfig.vidWidth - ( cgs.screenXScale * 640.0 ) ) / cgs.screenXScale );
+@@ -2300,6 +2307,7 @@
+ 		}
+ 	}
+ 
++	CG_SetEdgePlacement( qfalse );
+ 	if ( cg_fixedAspect.integer ) {
+ 		CG_SetScreenPlacement(PLACE_CENTER, PLACE_CENTER);
+ 	}
+@@ -3769,16 +3777,16 @@
+ 	if ( cg.snap->ps.persistant[PERS_TEAM] == TEAM_SPECTATOR ) {
+ 		CG_DrawSpectator();
+ 
+-		if(stereoFrame == STEREO_CENTER)
+-			CG_DrawCrosshair();
++		CG_DrawCrosshair();
+ 
+ 		CG_DrawCrosshairNames();
+ 	} else {
+ 		// don't draw any status if dead
+ 		if ( cg.snap->ps.stats[STAT_HEALTH] > 0 ) {
+ 
+-			if(stereoFrame == STEREO_CENTER)
+-				CG_DrawCrosshair();
++			// the crosshair and the scope / binocular reticles are 2D, on the screen plane in both eyes
++			// (stock draws a 3D crosshair for stereo frames and no reticle at all)
++			CG_DrawCrosshair();
+ 
+ 			if ( cg_drawStatus.integer ) {
+ 				if ( cg_fixedAspect.integer == 2 ) {
+@@ -3967,9 +3975,6 @@
+ 	// clear around the rendered view if sized down
+ 	//CG_TileClear();	// (SA) moved down
+ 
+-	if(stereoView != STEREO_CENTER)
+-		CG_DrawCrosshair3D();
+-
+ 	cg.refdef.glfog.registered = 0; // make sure it doesn't use fog from another scene
+ /*
+ 	// NERVE - SMF - activate limbo menu and draw small 3d window
+--- a/SP/code/cgame/cg_drawtools.c
++++ b/SP/code/cgame/cg_drawtools.c
+@@ -33,6 +33,18 @@
+ static screenPlacement_e cg_verticalPlacement = PLACE_CENTER;
+ static screenPlacement_e cg_lastHorizontalPlacement = PLACE_CENTER;
+ static screenPlacement_e cg_lastVerticalPlacement = PLACE_CENTER;
++static qboolean cg_edgePlacement;
++
++/*
++================
++CG_SetEdgePlacement
++
++On: PLACE_LEFT / PLACE_RIGHT really mean the screen edges (scope masks), cg_hudCenter does not apply.
++================
++*/
++void CG_SetEdgePlacement( qboolean on ) {
++	cg_edgePlacement = on;
++}
+ 
+ /*
+ ================
+@@ -73,7 +85,7 @@
+ 			*w *= cgs.screenXScale;
+ 			*x *= cgs.screenXScale;
+ 	
+-			if (cg_horizontalPlacement == PLACE_CENTER || cg_hudCenter.integer) {
++			if (cg_horizontalPlacement == PLACE_CENTER || ( cg_hudCenter.integer && !cg_edgePlacement )) {
+ 				// cg_hudCenter: the HUD is one centred 4:3 block (left/right elements do not stick to the screen edges)
+ 				*x += cgs.screenXBias;
+ 			} else if (cg_horizontalPlacement == PLACE_RIGHT) {
+--- a/SP/code/cgame/cg_local.h
++++ b/SP/code/cgame/cg_local.h
+@@ -1679,6 +1679,7 @@
+ extern vmCvar_t cg_fixedAspect;
+ extern vmCvar_t cg_fixedAspectFOV;
+ extern vmCvar_t cg_hudCenter;
++void CG_SetEdgePlacement( qboolean on );
+ extern vmCvar_t cg_oldWolfUI;
+ extern vmCvar_t cg_drawStatusHead;
+ extern vmCvar_t cg_zoomFov;
+--- a/SP/code/renderer/tr_main.c
++++ b/SP/code/renderer/tr_main.c
+@@ -868,6 +868,17 @@
+ 		// the first person weapon passes a smaller zProj and so gets a proportionally smaller offset
+ 		stereoSep *= zProj / r_stereoConvergence->value;
+ 
++		// zoomed (sniper / binoculars) the same eye offset would look magnified: scale it with the view angle,
++		// relative to a 4:3 view at the default angle (what cg_fixedAspect keeps the unzoomed view at)
++		if ( r_stereoZoom->integer && dest->viewportHeight > 0 ) {
++			float base = 0.75f * dest->viewportWidth / dest->viewportHeight;
++			float zoom = tan( dest->fovX * M_PI / 360.0f ) / base;
++
++			if ( zoom < 1 ) {
++				stereoSep *= zoom;
++			}
++		}
++
+ 		if(dest->stereoFrame == STEREO_RIGHT)
+ 			stereoSep = -stereoSep;
+ 		else if(dest->stereoFrame != STEREO_LEFT)
+--- a/SP/code/renderer/tr_local.h
++++ b/SP/code/renderer/tr_local.h
+@@ -1168,6 +1168,7 @@
+ extern cvar_t	*r_stereoSeparation;	// eye offset in world units (0 = no stereo parallax)
+ extern cvar_t	*r_stereoMode;		// 0 = off, 1 = side-by-side, 2 = anaglyph
+ extern cvar_t	*r_stereoHalf;		// SBS: 1 = squeezed full-width picture per eye (for 3D TVs), 0 = one-eye aspect
++extern cvar_t	*r_stereoZoom;		// 1 = scale the eye offset with the view angle when zoomed
+ extern cvar_t	*r_stereoConvergence;	// distance of the zero-parallax plane
+ extern cvar_t	*r_renderScale;		// 3D/2D rendering resolution relative to the window (< 1 renders to an FBO and upscales)
+ extern qboolean	r_fboActive;
+--- a/SP/code/renderer/tr_init.c
++++ b/SP/code/renderer/tr_init.c
+@@ -65,6 +65,7 @@
+ cvar_t	*r_zproj;
+ cvar_t	*r_stereoSeparation;
+ cvar_t	*r_stereoMode;
++cvar_t	*r_stereoZoom;
+ cvar_t	*r_stereoConvergence;
+ cvar_t	*r_stereoHalf;
+ cvar_t	*r_renderScale;
+@@ -1311,6 +1312,7 @@
+ 	ri.Cvar_CheckRange( r_stereoMargin, 0, 0.5f, qfalse );
+ 	r_lensStrength = ri.Cvar_Get( "r_lensStrength", "8", CVAR_ARCHIVE );
+ 	ri.Cvar_CheckRange( r_lensStrength, 0, 20, qfalse );
++	r_stereoZoom = ri.Cvar_Get( "r_stereoZoom", "1", CVAR_ARCHIVE );
+ 	r_stereoConvergence = ri.Cvar_Get( "r_stereoConvergence", "64", CVAR_ARCHIVE );
+ 	ri.Cvar_CheckRange( r_stereoConvergence, 1, 4096, qfalse );
+ //----(SA)	added

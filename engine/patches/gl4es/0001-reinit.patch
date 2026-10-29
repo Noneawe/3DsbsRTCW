@@ -1,0 +1,30 @@
+diff --git a/src/gl/glstate.c b/src/gl/glstate.c
+index 42a7f7a..18575d5 100644
+--- a/src/gl/glstate.c
++++ b/src/gl/glstate.c
+@@ -632,10 +632,9 @@ void ActivateGLState(void* new_glstate) {
+ }
+ 
+ void gl_init() {
+-	#ifdef GL4ES_COMPILE_FOR_USE_IN_SHARED_LIB
+-		glstate=NULL;
+-		memset(&default_glstate,0,sizeof(glstate_t));
+-	#endif
++	// always start from a clean state: gl_close() freed it and initialize_gl4es() may run again (vid_restart)
++	glstate=NULL;
++	memset(&default_glstate,0,sizeof(glstate_t));
+   (void)NewGLState(DEFAULT_STATE, 0); // automaticaly fill default_glstate
+   ActivateGLState(&default_glstate);
+ }
+diff --git a/src/gl/init.c b/src/gl/init.c
+index 7526d91..b4fab47 100644
+--- a/src/gl/init.c
++++ b/src/gl/init.c
+@@ -740,6 +740,7 @@ void close_gl4es() {
+     gl_close();
+     fpe_writePSA();
+     fpe_FreePSA();
++    inited = 0;    // allow initialize_gl4es() again (vid_restart)
+         #if defined(GL4ES_COMPILE_FOR_USE_IN_SHARED_LIB) && defined(AMIGAOS4)
+         os4CloseLib();
+       #endif

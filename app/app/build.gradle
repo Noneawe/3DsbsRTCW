@@ -1,0 +1,88 @@
+def buildAsLibrary = project.hasProperty('BUILD_AS_LIBRARY');
+def buildAsApplication = !buildAsLibrary
+if (buildAsApplication) {
+    apply plugin: 'com.android.application'
+}
+else {
+    apply plugin: 'com.android.library'
+}
+
+android {
+    if (buildAsApplication) {
+        namespace "org.libsdl.app"
+    }
+    compileSdkVersion 34
+    ndkVersion "28.2.13676358"
+    defaultConfig {
+        applicationId "io.github.noneawe.threedrtcw"   // game data folder: Android/data/<this id>/files/
+        minSdkVersion 24
+        targetSdkVersion 34
+        versionCode 1
+        versionName "0.1"
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_PLATFORM=android-24"
+                abiFilters 'arm64-v8a'
+            }
+        }
+    }
+    buildTypes {
+        release {
+            // debug key: installable for testing. Sign with your own key to distribute (see docs/BUILD.md)
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    // zz~stereo.pk3 (default gamepad binds, later menus) is built from ui/pk3 and shipped in the APK;
+    // PakCheckActivity copies it next to pak0.pk3
+    sourceSets.main.assets.srcDir "$buildDir/generated/pk3"
+
+    applicationVariants.all { variant ->
+        tasks["merge${variant.name.capitalize()}Assets"]
+            .dependsOn("externalNativeBuild${variant.name.capitalize()}")
+    }
+    if (!project.hasProperty('EXCLUDE_NATIVE_LIBS')) {
+        sourceSets.main {
+            jniLibs.srcDir 'libs'
+        }
+        externalNativeBuild {
+            cmake {
+                path "jni/CMakeLists.txt"
+            }
+            // cmake {
+            //     path 'jni/CMakeLists.txt'
+            // }
+        }
+       
+    }
+    lint {
+        abortOnError false
+    }
+
+    if (buildAsLibrary) {
+        libraryVariants.all { variant ->
+            variant.outputs.each { output ->
+                def outputFile = output.outputFile
+                if (outputFile != null && outputFile.name.endsWith(".aar")) {
+                    def fileName = "org.libsdl.app.aar";
+                    output.outputFile = new File(outputFile.parent, fileName);
+                }
+            }
+        }
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+}
+
+
+
+tasks.register('ownPk3', Zip) {
+    from "$rootDir/../ui/pk3"
+    archiveFileName = 'zz~stereo.pk3'
+    destinationDirectory = file("$buildDir/generated/pk3")
+}
+tasks.matching { it.name == 'preBuild' }.configureEach { dependsOn 'ownPk3' }

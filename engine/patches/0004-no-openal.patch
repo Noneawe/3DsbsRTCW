@@ -1,0 +1,18 @@
+diff --git a/SP/code/client/snd_main.c b/SP/code/client/snd_main.c
+index a17da0e..28a4257 100644
+--- a/SP/code/client/snd_main.c
++++ b/SP/code/client/snd_main.c
+@@ -578,11 +578,13 @@ void S_Init( void )
+ 		Cmd_AddCommand( "s_info", S_SoundInfo );
+ 
+ 		cv = Cvar_Get( "s_useOpenAL", "1", CVAR_ARCHIVE | CVAR_LATCH );
++#ifdef USE_OPENAL
+ 		if( cv->integer ) {
+ 			//OpenAL
+ 			started = S_AL_Init( &si );
+ 			Cvar_Set( "s_backend", "OpenAL" );
+ 		}
++#endif
+ 
+ 		if( !started ) {
+ 			started = S_Base_Init( &si );

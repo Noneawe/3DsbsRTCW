@@ -1,0 +1,70 @@
+--- a/SP/code/cgame/cg_consolecmds.c
++++ b/SP/code/cgame/cg_consolecmds.c
+@@ -379,6 +379,36 @@
+ 	void ( *function )( void );
+ } consoleCommand_t;
+ 
++/*
++=================
++CG_PadZoomDown_f / CG_PadZoomUp_f
++
++One zoom button for the gamepad: with a scoped weapon (Mauser, FG42, Garand or their scope mode) it toggles
++the scope like the alt-fire key, otherwise it holds the binoculars (+zoom, needs the binoculars item).
++=================
++*/
++static qboolean padZoomBinoc;
++
++static void CG_PadZoomDown_f( void ) {
++	switch ( cg.snap->ps.weapon ) {
++	case WP_MAUSER: case WP_GARAND: case WP_FG42:
++	case WP_SNIPERRIFLE: case WP_SNOOPERSCOPE: case WP_FG42SCOPE:
++		padZoomBinoc = qfalse;
++		CG_AltWeapon_f();
++		break;
++	default:
++		padZoomBinoc = qtrue;
++		trap_SendConsoleCommand( "+zoom\n" );
++	}
++}
++
++static void CG_PadZoomUp_f( void ) {
++	if ( padZoomBinoc ) {
++		padZoomBinoc = qfalse;
++		trap_SendConsoleCommand( "-zoom\n" );
++	}
++}
++
+ static consoleCommand_t commands[] = {
+ 	{ "testgun", CG_TestGun_f },
+ 	{ "testmodel", CG_TestModel_f },
+@@ -393,6 +423,8 @@
+ 	{ "-inventory", CG_InventoryUp_f },
+ //	{ "+zoom", CG_ZoomDown_f },		// (SA) zoom moved to a wbutton so server can determine weapon firing based on zoom status
+ //	{ "-zoom", CG_ZoomUp_f },
++	{ "+padzoom", CG_PadZoomDown_f },
++	{ "-padzoom", CG_PadZoomUp_f },
+ 	{ "zoomin", CG_ZoomIn_f },
+ 	{ "zoomout", CG_ZoomOut_f },
+ 	{ "sizeup", CG_SizeUp_f },
+--- a/SP/code/ui/ui_main.c
++++ b/SP/code/ui/ui_main.c
+@@ -4603,7 +4603,7 @@
+ ==============
+ */
+ static const struct { const char *cvar, *cmd; } uiPadActions[] = {
+-	{ "ui_pad_fire", "+attack" }, { "ui_pad_zoom", "+zoom" }, { "ui_pad_jump", "+moveup" },
++	{ "ui_pad_fire", "+attack" }, { "ui_pad_zoom", "+padzoom" }, { "ui_pad_jump", "+moveup" },
+ 	{ "ui_pad_crouch", "+movedown" }, { "ui_pad_reload", "+reload" }, { "ui_pad_use", "+activate" },
+ 	{ "ui_pad_next", "weapnext" }, { "ui_pad_prev", "weapprev" }, { "ui_pad_alt", "weapalt" },
+ 	{ "ui_pad_notes", "notebook" }, { "ui_pad_leanl", "+leanleft" }, { "ui_pad_leanr", "+leanright" },
+--- a/SP/code/client/cl_main.c
++++ b/SP/code/client/cl_main.c
+@@ -3884,6 +3884,8 @@
+ 		}
+ 		if ( k > K_PAD0_RIGHTTRIGGER ) {
+ 			Cbuf_AddText( "exec pad_defaults.cfg\n" );
++		} else if ( keys[K_PAD0_LEFTTRIGGER].binding && !Q_stricmp( keys[K_PAD0_LEFTTRIGGER].binding, "+zoom" ) ) {
++			Cbuf_AddText( "bind PAD0_LEFTTRIGGER +padzoom\n" );   // older default: binoculars only
+ 		}
+ 	}
+ 

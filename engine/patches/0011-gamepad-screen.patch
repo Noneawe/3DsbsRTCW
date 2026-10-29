@@ -1,0 +1,152 @@
+--- a/SP/code/client/cl_input.c
++++ b/SP/code/client/cl_input.c
+@@ -445,6 +445,13 @@
+ 	float pitch   = j_pitch->value   * cl.joystickAxis[j_pitch_axis->integer];
+ 	float up      = j_up->value      * cl.joystickAxis[j_up_axis->integer];
+ 
++	// gamepad settings screen: look speed and invert Y (both stick axes feed yaw / pitch through these)
++	yaw   *= j_lookScale->value;
++	pitch *= j_lookScale->value;
++	if ( j_invertY->integer ) {
++		pitch = -pitch;
++	}
++
+ 	if ( !( kb[KB_SPEED].active ^ cl_run->integer ) ) {
+ 		cmd->buttons |= BUTTON_WALKING;
+ 	}
+--- a/SP/code/client/cl_main.c
++++ b/SP/code/client/cl_main.c
+@@ -101,6 +101,8 @@
+ cvar_t  *m_side;
+ cvar_t  *m_filter;
+ 
++cvar_t	*j_lookScale;
++cvar_t	*j_invertY;
+ cvar_t	*j_pitch;
+ cvar_t	*j_yaw;
+ cvar_t	*j_forward;
+@@ -3725,6 +3727,8 @@
+ 	m_side = Cvar_Get( "m_side", "0.25", CVAR_ARCHIVE );
+ 	m_filter = Cvar_Get( "m_filter", "0", CVAR_ARCHIVE );
+ 
++	j_lookScale =    Cvar_Get ("j_lookScale",    "1", CVAR_ARCHIVE);
++	j_invertY =      Cvar_Get ("j_invertY",      "0", CVAR_ARCHIVE);
+ 	j_pitch =        Cvar_Get ("j_pitch",        "0.022", CVAR_ARCHIVE);
+ 	j_yaw =          Cvar_Get ("j_yaw",          "-0.022", CVAR_ARCHIVE);
+ 	j_forward =      Cvar_Get ("j_forward",      "-0.25", CVAR_ARCHIVE);
+--- a/SP/code/client/client.h
++++ b/SP/code/client/client.h
+@@ -428,6 +428,8 @@
+ extern cvar_t  *m_side;
+ extern cvar_t  *m_filter;
+ 
++extern	cvar_t	*j_lookScale;
++extern	cvar_t	*j_invertY;
+ extern	cvar_t	*j_pitch;
+ extern	cvar_t	*j_yaw;
+ extern	cvar_t	*j_forward;
+--- a/SP/code/ui/ui_main.c
++++ b/SP/code/ui/ui_main.c
+@@ -167,6 +167,8 @@
+ void _UI_Shutdown( void );
+ void _UI_KeyEvent( int key, qboolean down );
+ void _UI_MouseEvent( int dx, int dy );
++static int uiPadReloadFrames;	// padReset: "exec" runs from the command buffer, so reload the pad screen a few frames later
++static void UI_PadLoad( void );
+ void _UI_Refresh( int realtime );
+ qboolean _UI_IsFullscreen( void );
+ 
+@@ -671,6 +673,10 @@
+ 
+ #define UI_FPS_FRAMES   4
+ void _UI_Refresh( int realtime ) {
++	if ( uiPadReloadFrames > 0 && --uiPadReloadFrames == 0 ) {
++		UI_PadLoad();
++	}
++
+ 	static int index;
+ 	static int previousTimes[UI_FPS_FRAMES];
+ 
+@@ -4592,6 +4598,68 @@
+ 
+ /*
+ ==============
++Gamepad settings (System -> Pad tab, added at install time): one cvar per action holds the name of the pad
++button bound to it ("none" = unbound). padLoad reads the binds into the cvars, padApply writes them back.
++==============
++*/
++static const struct { const char *cvar, *cmd; } uiPadActions[] = {
++	{ "ui_pad_fire", "+attack" }, { "ui_pad_zoom", "+zoom" }, { "ui_pad_jump", "+moveup" },
++	{ "ui_pad_crouch", "+movedown" }, { "ui_pad_reload", "+reload" }, { "ui_pad_use", "+activate" },
++	{ "ui_pad_next", "weapnext" }, { "ui_pad_prev", "weapprev" }, { "ui_pad_alt", "weapalt" },
++	{ "ui_pad_notes", "notebook" }, { "ui_pad_leanl", "+leanleft" }, { "ui_pad_leanr", "+leanright" },
++	{ "ui_pad_sprint", "+sprint" }, { "ui_pad_kick", "+kick" }, { "ui_pad_obj", "+scores" },
++};
++static const int uiPadKeys[] = {
++	K_PAD0_A, K_PAD0_B, K_PAD0_X, K_PAD0_Y, K_PAD0_BACK, K_PAD0_START, K_PAD0_LEFTSTICK_CLICK,
++	K_PAD0_RIGHTSTICK_CLICK, K_PAD0_LEFTSHOULDER, K_PAD0_RIGHTSHOULDER, K_PAD0_DPAD_UP, K_PAD0_DPAD_DOWN,
++	K_PAD0_DPAD_LEFT, K_PAD0_DPAD_RIGHT, K_PAD0_LEFTTRIGGER, K_PAD0_RIGHTTRIGGER,
++};
++#define UI_PAD_ACTIONS ( sizeof( uiPadActions ) / sizeof( uiPadActions[0] ) )
++#define UI_PAD_KEYS ( sizeof( uiPadKeys ) / sizeof( uiPadKeys[0] ) )
++
++static void UI_PadLoad( void ) {
++	unsigned a, k;
++	char bind[MAX_STRING_CHARS], name[64];
++
++	for ( a = 0; a < UI_PAD_ACTIONS; a++ ) {
++		Q_strncpyz( name, "none", sizeof( name ) );
++		for ( k = 0; k < UI_PAD_KEYS; k++ ) {
++			trap_Key_GetBindingBuf( uiPadKeys[k], bind, sizeof( bind ) );
++			if ( !Q_stricmp( bind, uiPadActions[a].cmd ) ) {
++				trap_Key_KeynumToStringBuf( uiPadKeys[k], name, sizeof( name ) );
++				break;
++			}
++		}
++		trap_Cvar_Set( uiPadActions[a].cvar, name );
++	}
++}
++
++static void UI_PadApply( void ) {
++	unsigned a, k;
++	char bind[MAX_STRING_CHARS], name[64], want[64];
++
++	for ( a = 0; a < UI_PAD_ACTIONS; a++ ) {
++		// free the buttons this action had, then take the chosen one (it may move from another action)
++		for ( k = 0; k < UI_PAD_KEYS; k++ ) {
++			trap_Key_GetBindingBuf( uiPadKeys[k], bind, sizeof( bind ) );
++			if ( !Q_stricmp( bind, uiPadActions[a].cmd ) ) {
++				trap_Key_SetBinding( uiPadKeys[k], "" );
++			}
++		}
++		trap_Cvar_VariableStringBuffer( uiPadActions[a].cvar, want, sizeof( want ) );
++		for ( k = 0; k < UI_PAD_KEYS; k++ ) {
++			trap_Key_KeynumToStringBuf( uiPadKeys[k], name, sizeof( name ) );
++			if ( !Q_stricmp( name, want ) ) {
++				trap_Key_SetBinding( uiPadKeys[k], uiPadActions[a].cmd );
++				break;
++			}
++		}
++	}
++	UI_PadLoad();	// an action that lost its button to another one shows "none"
++}
++
++/*
++==============
+ UI_RunMenuScript
+ ==============
+ */
+@@ -5050,6 +5118,13 @@
+ 				Menus_CloseAll();
+ 			}
+ 			//#endif	// #ifdef MISSIONPACK
++		} else if ( Q_stricmp( name, "padLoad" ) == 0 ) {
++			UI_PadLoad();
++		} else if ( Q_stricmp( name, "padReset" ) == 0 ) {
++			trap_Cmd_ExecuteText( EXEC_NOW, "exec pad_defaults.cfg\n" );
++			uiPadReloadFrames = 3;
++		} else if ( Q_stricmp( name, "padApply" ) == 0 ) {
++			UI_PadApply();
+ 		} else if ( Q_stricmp( name, "glCustom" ) == 0 ) {
+ 			trap_Cvar_Set( "ui_glCustom", "4" );
+ 		} else if ( Q_stricmp( name, "update" ) == 0 ) {

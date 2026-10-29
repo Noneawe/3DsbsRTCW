@@ -1,0 +1,619 @@
+// 3DRTCW: "3D" and "Pad" tabs added to the System menu at install time (see PakCheckActivity.installMenus).
+// Adjacent quoted strings are merged by the menu parser: cvarStrList entries need commas.
+// Items sit in the menu's grpSystem group, so the menu's own onOpen/tab scripts hide and show them.
+
+itemDef {
+	name ctr_stereo
+	text "3D"
+	type ITEM_TYPE_BUTTON
+	textscale .22
+	group grpSystembutton
+	style WINDOW_STYLE_FILLED
+	rect 6 10 44 12
+	textalign 1
+	textalignx 22
+	textaligny 10
+	forecolor .9 .9 .9 .8
+	backcolor .1 .1 .1 0
+	visible 1
+	action { play "sound/misc/kcaction.wav" ; hide grpSystem ; hide grpapplysystem ; hide graphicsapply ; show stereo }
+}
+
+itemDef {
+	name stereo
+	group grpSystem
+	style 1
+	text "3D Settings"
+	rect 163 30 128 20
+	textalign ITEM_ALIGN_CENTER
+	textalignx 64
+	textaligny 20
+	textscale .22
+	forecolor .9 .9 .9 .9
+	visible 0
+	decoration
+}
+
+itemDef {
+	name stereo
+	group grpSystem
+	type ITEM_TYPE_SLIDER
+	text "3D Depth:"
+	cvarfloat "r_stereoSeparation" 1 0 2
+	rect 82 60 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .22
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name stereo
+	group grpSystem
+	type ITEM_TYPE_SLIDER
+	text "Convergence:"
+	cvarfloat "r_stereoConvergence" 64 16 256
+	rect 82 80 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .22
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name stereo
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Stereo 3D:"
+	cvar "r_stereoMode"
+	cvarFloatList { "Off" 0 "Side by Side" 1 "Anaglyph (red/cyan)" 2 }
+	rect 82 100 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .22
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name stereo
+	group grpSystem
+	type ITEM_TYPE_YESNO
+	text "Half-width SBS:"
+	cvar "r_stereoHalf"
+	rect 82 120 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .22
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name stereo
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Render Scale:"
+	cvar "r_renderScale"
+	cvarFloatList { "100%" 1 "85%" 0.85 "75%" 0.75 "66%" 0.66 "50%" 0.5 "33%" 0.33 }
+	rect 82 140 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .22
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name stereo
+	group grpSystem
+	type ITEM_TYPE_YESNO
+	text "Lens Distortion:"
+	cvar "r_stereoLens"
+	rect 82 160 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .22
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name stereo
+	group grpSystem
+	type ITEM_TYPE_SLIDER
+	text "Lens Strength:"
+	cvarfloat "r_lensStrength" 8 0 20
+	rect 82 180 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .22
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name stereo
+	group grpSystem
+	type ITEM_TYPE_SLIDER
+	text "Image Shift:"
+	cvarfloat "r_stereoShift" 0.15 0 0.2
+	rect 82 200 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .22
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name stereo
+	group grpSystem
+	type ITEM_TYPE_SLIDER
+	text "Image Margin:"
+	cvarfloat "r_stereoMargin" 0.26 0 0.4
+	rect 82 220 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .22
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name stereo
+	group grpSystem
+	text "Apply (restarts video)"
+	type ITEM_TYPE_BUTTON
+	style WINDOW_STYLE_FILLED
+	textscale .25
+	rect 141 252 180 20
+	textalign 1
+	textalignx 90
+	textaligny 15
+	forecolor 1 1 1 1
+	backcolor .1 .1 .1 .1
+	visible 0
+	border 1
+	bordercolor .5 .5 .5 .5
+	action { play "sound/misc/kcaction.wav" ; exec "vid_restart" }
+	mouseEnter { setitemcolor stereo backcolor .3 .5 .2 .25 }
+	mouseExit { setitemcolor stereo backcolor .1 .1 .1 .1 }
+}
+
+itemDef {
+	name ctr_pad
+	text "Pad"
+	type ITEM_TYPE_BUTTON
+	textscale .22
+	group grpSystembutton
+	style WINDOW_STYLE_FILLED
+	rect 408 10 34 12
+	textalign 1
+	textalignx 17
+	textaligny 10
+	forecolor .9 .9 .9 .8
+	backcolor .1 .1 .1 0
+	visible 1
+	action { play "sound/misc/kcaction.wav" ; hide grpSystem ; hide grpapplysystem ; hide graphicsapply ; uiScript padLoad ; show pad }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_SLIDER
+	text "Look Speed:"
+	cvarfloat "j_lookScale" 1 0.2 3
+	rect 82 26 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_SLIDER
+	text "Deadzone:"
+	cvarfloat "joy_threshold" 0.15 0 0.5
+	rect 82 38 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_SLIDER
+	text "Response Curve:"
+	cvarfloat "joy_curve" 1.5 1 3
+	rect 82 50 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_YESNO
+	text "Invert Y:"
+	cvar "j_invertY"
+	rect 82 62 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_SLIDER
+	text "Aim Assist:"
+	cvarfloat "cg_aimAssist" 0.6 0 1
+	rect 82 74 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Fire:"
+	cvar "ui_pad_fire"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 86 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Zoom / binoculars:"
+	cvar "ui_pad_zoom"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 98 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Jump:"
+	cvar "ui_pad_jump"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 110 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Crouch:"
+	cvar "ui_pad_crouch"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 122 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Reload:"
+	cvar "ui_pad_reload"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 134 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Use:"
+	cvar "ui_pad_use"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 146 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Next weapon:"
+	cvar "ui_pad_next"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 158 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Previous weapon:"
+	cvar "ui_pad_prev"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 170 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Alt fire mode:"
+	cvar "ui_pad_alt"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 182 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Notebook:"
+	cvar "ui_pad_notes"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 194 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Lean left:"
+	cvar "ui_pad_leanl"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 206 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Lean right:"
+	cvar "ui_pad_leanr"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 218 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Sprint:"
+	cvar "ui_pad_sprint"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 230 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Melee kick:"
+	cvar "ui_pad_kick"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 242 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	type ITEM_TYPE_MULTI
+	text "Objectives:"
+	cvar "ui_pad_obj"
+	cvarStrList { "None", "none", "A", "PAD0_A", "B", "PAD0_B", "X", "PAD0_X", "Y", "PAD0_Y", "Back", "PAD0_BACK", "Start", "PAD0_START", "L3 (stick click)", "PAD0_LEFTSTICK_CLICK", "R3 (stick click)", "PAD0_RIGHTSTICK_CLICK", "L1", "PAD0_LEFTSHOULDER", "R1", "PAD0_RIGHTSHOULDER", "D-pad up", "PAD0_DPAD_UP", "D-pad down", "PAD0_DPAD_DOWN", "D-pad left", "PAD0_DPAD_LEFT", "D-pad right", "PAD0_DPAD_RIGHT", "L2 (trigger)", "PAD0_LEFTTRIGGER", "R2 (trigger)", "PAD0_RIGHTTRIGGER" }
+	rect 82 254 290 12
+	textalign ITEM_ALIGN_RIGHT
+	textalignx 142
+	textaligny 10
+	textscale .2
+	style WINDOW_STYLE_FILLED
+	backcolor 1 1 1 .07
+	forecolor 1 1 1 1
+	visible 0
+	action { uiScript padApply }
+}
+
+itemDef {
+	name pad
+	group grpSystem
+	text "Reset pad to defaults"
+	type ITEM_TYPE_BUTTON
+	style WINDOW_STYLE_FILLED
+	textscale .22
+	rect 141 270 180 16
+	textalign 1
+	textalignx 90
+	textaligny 12
+	forecolor 1 1 1 1
+	backcolor .1 .1 .1 .1
+	visible 0
+	border 1
+	bordercolor .5 .5 .5 .5
+	action { play "sound/misc/kcaction.wav" ; uiScript padReset }
+	mouseEnter { setitemcolor pad backcolor .3 .5 .2 .25 }
+	mouseExit { setitemcolor pad backcolor .1 .1 .1 .1 }
+}

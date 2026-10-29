@@ -1,0 +1,78 @@
+diff --git a/SP/code/sys/sys_main.c b/SP/code/sys/sys_main.c
+index 2c880f1..cf21ed9 100644
+--- a/SP/code/sys/sys_main.c
++++ b/SP/code/sys/sys_main.c
+@@ -42,6 +42,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ #endif
+ 
+ #include "sys_local.h"
++#ifdef __ANDROID__
++#	include <android/log.h>
++#	include <unistd.h>
++#endif
+ #include "sys_loadlib.h"
+ 
+ #include "../qcommon/q_shared.h"
+@@ -420,6 +424,9 @@ Sys_Print
+ */
+ void Sys_Print( const char *msg )
+ {
++#ifdef __ANDROID__
++	__android_log_write( ANDROID_LOG_INFO, "rtcw", msg );
++#endif
+ 	CON_LogWrite( msg );
+ 	CON_Print( msg );
+ }
+@@ -734,6 +741,39 @@ int main( int argc, char **argv )
+ 	Sys_SetBinaryPath( Sys_Dirname( argv[ 0 ] ) );
+ 	Sys_SetDefaultInstallPath( DEFAULT_BASEDIR );
+ 
++#ifdef __ANDROID__
++	{
++		// Game files live in Android/data/<package>/files (main/pak0.pk3 goes there)
++		const char *dir = SDL_AndroidGetExternalStoragePath( );
++
++		if( dir )
++		{
++			// create the game dir so users can drop pak0.pk3 in (and it is owned by the app)
++			char base[ MAX_OSPATH ];
++			Com_sprintf( base, sizeof( base ), "%s/main", dir );
++			mkdir( base, 0770 );
++
++			// first run (no saved config): apply default gamepad bindings
++			Com_sprintf( base, sizeof( base ), "%s/main/wolfconfig.cfg", dir );
++			if( access( base, F_OK ) != 0 )
++				Q_strcat( commandLine, sizeof( commandLine ), "+exec pad_defaults.cfg " );
++
++			// optional startup.cfg next to pak0.pk3: run once the commands (map, devmap...) exist, for testing
++			Com_sprintf( base, sizeof( base ), "%s/main/startup.cfg", dir );
++			if( access( base, R_OK ) == 0 )
++				Q_strcat( commandLine, sizeof( commandLine ), "+exec startup.cfg " );
++
++			Q_strcat( commandLine, sizeof( commandLine ), "+set fs_basepath \"" );
++			Q_strcat( commandLine, sizeof( commandLine ), dir );
++			Q_strcat( commandLine, sizeof( commandLine ), "\" +set fs_homepath \"" );
++			Q_strcat( commandLine, sizeof( commandLine ), dir );
++			Q_strcat( commandLine, sizeof( commandLine ), "\" " );
++		}
++		Q_strcat( commandLine, sizeof( commandLine ),
++			"+set r_fullscreen 1 +set r_mode -2 +set s_useOpenAL 0 +set in_joystick 1 " );
++	}
++#endif
++
+ 	// Concatenate the command line for passing to Com_Init
+ 	for( i = 1; i < argc; i++ )
+ 	{
+@@ -753,9 +793,12 @@ int main( int argc, char **argv )
+ 	Com_Init( commandLine );
+ 	NET_Init( );
+ 
++#ifndef __ANDROID__
++	// on Android keep the default handlers so crashes produce a tombstone with a backtrace
+ 	signal( SIGILL, Sys_SigHandler );
+ 	signal( SIGFPE, Sys_SigHandler );
+ 	signal( SIGSEGV, Sys_SigHandler );
++#endif
+ 	signal( SIGTERM, Sys_SigHandler );
+ 	signal( SIGINT, Sys_SigHandler );
+ 

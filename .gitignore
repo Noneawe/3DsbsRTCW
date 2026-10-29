@@ -1,0 +1,14 @@
+*.pk3
+*.exe
+*.bin
+GOG Games/
+engine/iortcw/
+engine/gl4es/
+engine/SDL/
+*.apk
+build/
+.gradle/
+local.properties
+.cxx/
+.env
+!release/*.apk

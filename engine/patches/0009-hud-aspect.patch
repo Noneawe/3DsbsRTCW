@@ -1,0 +1,87 @@
+--- a/SP/code/cgame/cg_main.c
++++ b/SP/code/cgame/cg_main.c
+@@ -168,6 +168,7 @@
+ vmCvar_t cg_fov;
+ vmCvar_t cg_fixedAspect;
+ vmCvar_t cg_fixedAspectFOV;
++vmCvar_t cg_hudCenter;
+ vmCvar_t cg_oldWolfUI;
+ vmCvar_t cg_drawStatusHead;
+ vmCvar_t cg_zoomFov;
+@@ -302,8 +303,9 @@
+ 	{ &cg_zoomStepSnooper, "cg_zoomStepSnooper", "5", CVAR_ARCHIVE },
+ 	{ &cg_zoomStepFG, "cg_zoomStepFG", "10", CVAR_ARCHIVE },          //----(SA)	added
+ 	{ &cg_fov, "cg_fov", "90", CVAR_ARCHIVE },	// NOTE: there is already a dmflag (DF_FIXED_FOV) to allow server control of this cheat
+-	{ &cg_fixedAspect, "cg_fixedAspect", "0", CVAR_ARCHIVE | CVAR_LATCH }, // Essentially the same as setting DF_FIXED_FOV for widescreen aspects
+-	{ &cg_fixedAspectFOV, "cg_fixedAspectFOV", "1", CVAR_ARCHIVE },
++	{ &cg_fixedAspect, "cg_fixedAspect", "2", CVAR_ARCHIVE | CVAR_LATCH }, // Essentially the same as setting DF_FIXED_FOV for widescreen aspects
++	{ &cg_fixedAspectFOV, "cg_fixedAspectFOV", "0", CVAR_ARCHIVE },
++	{ &cg_hudCenter, "cg_hudCenter", "1", CVAR_ARCHIVE },
+ 	{ &cg_oldWolfUI, "cg_oldWolfUI", "0", CVAR_ARCHIVE },
+ 	{ &cg_drawStatusHead, "cg_drawStatusHead", "0", CVAR_ARCHIVE },
+ 	{ &cg_viewsize, "cg_viewsize", "100", CVAR_ARCHIVE },
+--- a/SP/code/cgame/cg_drawtools.c
++++ b/SP/code/cgame/cg_drawtools.c
+@@ -73,7 +73,8 @@
+ 			*w *= cgs.screenXScale;
+ 			*x *= cgs.screenXScale;
+ 	
+-			if (cg_horizontalPlacement == PLACE_CENTER) {
++			if (cg_horizontalPlacement == PLACE_CENTER || cg_hudCenter.integer) {
++				// cg_hudCenter: the HUD is one centred 4:3 block (left/right elements do not stick to the screen edges)
+ 				*x += cgs.screenXBias;
+ 			} else if (cg_horizontalPlacement == PLACE_RIGHT) {
+ 				*x += cgs.screenXBias*2;
+--- a/SP/code/cgame/cg_local.h
++++ b/SP/code/cgame/cg_local.h
+@@ -1678,6 +1678,7 @@
+ extern vmCvar_t cg_fov;
+ extern vmCvar_t cg_fixedAspect;
+ extern vmCvar_t cg_fixedAspectFOV;
++extern vmCvar_t cg_hudCenter;
+ extern vmCvar_t cg_oldWolfUI;
+ extern vmCvar_t cg_drawStatusHead;
+ extern vmCvar_t cg_zoomFov;
+--- a/SP/code/ui/ui_main.c
++++ b/SP/code/ui/ui_main.c
+@@ -7567,8 +7567,8 @@
+ 	{ &ui_useSuggestedWeapons, "cg_useSuggestedWeapons", "1", CVAR_ARCHIVE }, //----(SA)	added
+ 	{ &ui_emptyswitch, "cg_emptyswitch", "0", CVAR_ARCHIVE }, //----(SA)	added
+ 
+-	{ &ui_fixedAspect, "cg_fixedAspect", "0", CVAR_ARCHIVE | CVAR_LATCH },
+-	{ &ui_fixedAspectFOV, "cg_fixedAspectFOV", "1", CVAR_ARCHIVE },
++	{ &ui_fixedAspect, "cg_fixedAspect", "2", CVAR_ARCHIVE | CVAR_LATCH },
++	{ &ui_fixedAspectFOV, "cg_fixedAspectFOV", "0", CVAR_ARCHIVE },
+ 
+ 	{ &ui_server1, "server1", "", CVAR_ARCHIVE },
+ 	{ &ui_server2, "server2", "", CVAR_ARCHIVE },
+--- a/SP/code/client/cl_touch.c
++++ b/SP/code/client/cl_touch.c
+@@ -117,14 +117,24 @@
+ 
+ // absolute menu cursor: clamp to the corner, then move by the 640x480 position
+ static void menuCursor( float px, float py ) {
+-	float s = 480.0f / cls.glconfig.vidHeight;
++	float W = cls.glconfig.vidWidth, H = cls.glconfig.vidHeight;
++	float sx = W / 640.0f, sy = H / 480.0f, bx = 0, by = 0;
+ 
+-	if ( px < 0 ) px = 0; else if ( px > cls.glconfig.vidWidth ) px = cls.glconfig.vidWidth;
++	// cg_fixedAspect: the 640x480 menu is a centred block with one scale for both axes (see CG_Init / UI_Init)
++	if ( Cvar_VariableIntegerValue( "cg_fixedAspect" ) ) {
++		if ( sx > sy ) {
++			sx = sy;
++			bx = 0.5f * ( W - 640.0f * sx );
++		} else {
++			sy = sx;
++			by = 0.5f * ( H - 480.0f * sy );
++		}
++	}
+ 
+ 	Com_QueueEvent( Sys_Milliseconds(), SE_MOUSE, -10000, -10000, 0, NULL );
+ 	// consecutive mouse events are summed by Com_QueueEvent: keep them apart
+ 	Com_QueueEvent( Sys_Milliseconds(), SE_NONE, 0, 0, 0, NULL );
+-	Com_QueueEvent( Sys_Milliseconds(), SE_MOUSE, (int)( px * 640.0f / cls.glconfig.vidWidth ), (int)( py * 480.0f / cls.glconfig.vidHeight ), 0, NULL );
++	Com_QueueEvent( Sys_Milliseconds(), SE_MOUSE, (int)( ( px - bx ) / sx ), (int)( ( py - by ) / sy ), 0, NULL );
+ }
+ 
+ static int hitButton( float px, float py ) {

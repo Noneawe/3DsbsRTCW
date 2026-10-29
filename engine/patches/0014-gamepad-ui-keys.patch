@@ -1,0 +1,161 @@
+--- a/SP/code/client/cl_keys.c
++++ b/SP/code/client/cl_keys.c
+@@ -2252,7 +2252,8 @@
+ 			// in cutscenes we need to handle keys specially (pausing not allowed in camera mode)
+ 			if ( (  key == K_ESCAPE ||
+ 					key == K_SPACE ||
+-					key == K_ENTER ) && qtrue ) {
++					key == K_ENTER ||
++						( key >= K_PAD0_A && key <= K_PAD0_DPAD_RIGHT ) ) && qtrue ) {
+ 				if ( qtrue ) {
+ 					CL_AddReliableCommand( "cameraInterrupt", qfalse );
+ 				}
+@@ -2276,7 +2277,7 @@
+ 	// most keys during demo playback will bring up the menu, but non-ascii
+ 
+ 	// keys can still be used for bound actions
+-	if ( ( key < 128 || key == K_MOUSE1 ) &&
++	if ( ( key < 128 || key == K_MOUSE1 || ( key >= K_PAD0_A && key <= K_PAD0_DPAD_RIGHT ) ) &&
+ 		( clc.demoplaying || clc.state == CA_CINEMATIC ) && Key_GetCatcher( ) == 0 ) {
+ 
+ 		if (Cvar_VariableValue ("com_cameraMode") == 0) {
+@@ -2334,8 +2335,8 @@
+ 			// any key gets out of clipboard
+ 			key = K_ESCAPE;
+ 		} else if ( activeMenu == UIMENU_PREGAME ) {
+-			if ( key != K_MOUSE1 ) {
+-				return; // eat all keys except mouse click
++			if ( key != K_MOUSE1 && key != K_ENTER ) {
++				return; // eat all keys except mouse click (and Enter, sent by the gamepad A button)
+ 			}
+ 		} else {
+ 
+--- a/SP/code/client/cl_main.c
++++ b/SP/code/client/cl_main.c
+@@ -3872,6 +3872,19 @@
+ 	Cvar_Get( "cl_guid", "", CVAR_USERINFO | CVAR_ROM );
+ 	CL_UpdateGUID( NULL, 0 );
+ 
++	// no gamepad button bound (config from before the pad support, or deleted binds): load the defaults
++	{
++		int k;
++		for ( k = K_PAD0_A; k <= K_PAD0_RIGHTTRIGGER; k++ ) {
++			if ( keys[k].binding && keys[k].binding[0] ) {
++				break;
++			}
++		}
++		if ( k > K_PAD0_RIGHTTRIGGER ) {
++			Cbuf_AddText( "exec pad_defaults.cfg\n" );
++		}
++	}
++
+ 	Com_Printf( "----- Client Initialization Complete -----\n" );
+ }
+ 
+--- a/SP/code/sdl/sdl_input.c
++++ b/SP/code/sdl/sdl_input.c
+@@ -615,8 +615,6 @@
+ 		case K_PAD0_LEFTSTICK_LEFT:   return K_LEFTARROW;
+ 		case K_PAD0_DPAD_RIGHT:
+ 		case K_PAD0_LEFTSTICK_RIGHT:  return K_RIGHTARROW;
+-		case K_PAD0_LEFTSHOULDER:     return K_PGUP;
+-		case K_PAD0_RIGHTSHOULDER:    return K_PGDN;
+ 	}
+ 	return 0;
+ }
+--- a/SP/code/ui/ui_shared.h
++++ b/SP/code/ui/ui_shared.h
+@@ -468,6 +468,7 @@
+ qboolean PC_Script_Parse( int handle, const char **out );
+ qboolean PC_Char_Parse( int handle, char *out );              // NERVE - SMF
+ int Menu_Count( void );
++void Item_RunScript( itemDef_t *item, const char *s );
+ void Menu_New( int handle );
+ void Menu_PaintAll( void );
+ menuDef_t *Menus_ActivateByName( const char *p );
+--- a/SP/code/ui/ui_main.c
++++ b/SP/code/ui/ui_main.c
+@@ -4839,8 +4839,23 @@
+ 			Q_strncpyz( name, UI_Cvar_VariableString( "ui_savegame" ), MAX_NAME_LENGTH );
+ 
+ 			if ( !strlen( name ) ) {
+-				Menus_OpenByName( "save_name_popmenu" );
+-			} else {
++				// no keyboard (gamepad): name it <map>_<n>, the first number not used yet
++				int n;
++				for ( n = 1; n < 1000; n++ ) {
++					Com_sprintf( name, sizeof( name ), "%s_%d", UI_Cvar_VariableString( "mapname" ), n );
++					for ( i = 0; i < uiInfo.savegameCount; i++ ) {
++						if ( !Q_stricmp( name, uiInfo.savegameList[uiInfo.savegameStatus.displaySavegames[i]].savegameName ) ) {
++							break;
++						}
++					}
++					if ( i == uiInfo.savegameCount ) {
++						break;
++					}
++				}
++				trap_Cvar_Set( "ui_savegame", name );
++			}
++
++			{
+ 				// find out if there's an existing savegame with that name
+ 				for ( i = 0; i < uiInfo.savegameCount; i++ ) {
+ 					if ( Q_stricmp( name, uiInfo.savegameList[uiInfo.savegameStatus.displaySavegames[i]].savegameName ) == 0 ) {
+@@ -7010,10 +7025,57 @@
+ UI_KeyEvent
+ =================
+ */
++// Gamepad: LB/RB switch the tabs (buttons named ctr_*) of the focused menu, A confirms the pregame (Continue) screen.
++static int UI_TabCompare( const void *a, const void *b ) {
++	return (int)( ( *(itemDef_t **)a )->window.rect.x - ( *(itemDef_t **)b )->window.rect.x );
++}
++
++static qboolean UI_PadMenuKey( menuDef_t *menu, int key ) {
++	itemDef_t *tabs[64];
++	static menuDef_t *lastMenu;
++	static int cur;
++	int i, n = 0;
++
++	if ( key == K_ENTER && !Q_stricmp( menu->window.name, "pregame" ) ) {
++		for ( i = 0; i < menu->itemCount; i++ ) {
++			itemDef_t *it = menu->items[i];
++			if ( it->type == ITEM_TYPE_BUTTON && it->action ) {
++				Item_RunScript( it, it->action );
++				return qtrue;
++			}
++		}
++		return qfalse;
++	}
++
++	if ( key != K_PAD0_LEFTSHOULDER && key != K_PAD0_RIGHTSHOULDER ) {
++		return qfalse;
++	}
++	for ( i = 0; i < menu->itemCount && n < 64; i++ ) {
++		itemDef_t *it = menu->items[i];
++		if ( it->type == ITEM_TYPE_BUTTON && it->action && !Q_stricmpn( it->window.name, "ctr_", 4 ) ) {
++			tabs[n++] = it;
++		}
++	}
++	if ( n < 2 ) {
++		return qtrue;
++	}
++	qsort( tabs, n, sizeof( tabs[0] ), UI_TabCompare );
++	if ( menu != lastMenu ) {   // ponytail: the opened tab is not tracked, the first press starts from the leftmost one
++		lastMenu = menu;
++		cur = 0;
++	}
++	cur = ( cur + ( key == K_PAD0_RIGHTSHOULDER ? 1 : n - 1 ) ) % n;
++	Item_RunScript( tabs[cur], tabs[cur]->action );
++	return qtrue;
++}
++
+ void _UI_KeyEvent( int key, qboolean down ) {
+ 
+ 	if ( Menu_Count() > 0 ) {
+ 		menuDef_t *menu = Menu_GetFocused();
++		if ( menu && down && UI_PadMenuKey( menu, key ) ) {
++			return;
++		}
+ 		if ( menu ) {
+ 			if ( key == K_ESCAPE && down && !Menus_AnyFullScreenVisible() ) {
+ 				Menus_CloseAll();

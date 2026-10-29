@@ -1,0 +1,13 @@
+3DRTCW is built from the following projects; their sources are fetched by scripts/setup.sh and are not part of this repository.
+
+iortcw (id Software, Gray Matter, iortcw contributors)  GNU GPL v3 (RTCW parts), GPL v2 (ioquake3 parts)  https://github.com/iortcw/iortcw
+SDL2 (Sam Lantinga and contributors)            zlib license          https://github.com/libsdl-org/SDL
+  (including the Android Java sources in app/app/src/main/java/org/libsdl/app)
+gl4es (Sebastien Chevalier, Ryan Hileman)       MIT license           https://github.com/ptitSeb/gl4es
+Gradle wrapper (Gradle Inc.)                    Apache License 2.0
+
+The patches in engine/patches/ are derived from iortcw / gl4es and are distributed under the license of the file
+they modify. All other files in this repository: GNU GPL v3.
+
+Not included and not licensed here: all Return to Castle Wolfenstein game data. The game and its name are trademarks of
+their owners; this project is not affiliated with them.

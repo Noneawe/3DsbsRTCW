@@ -1,0 +1,38 @@
+--- a/SP/code/ui/ui_shared.c
++++ b/SP/code/ui/ui_shared.c
+@@ -3988,12 +3988,13 @@
+ 				|| key == K_ENTER || key == K_KP_ENTER || key == K_JOY1 || key == K_JOY2 || key == K_JOY3 || key == K_JOY4)) {
+ 			g_waitingForKey = qtrue;
+ 			g_bindItem = item;
++			return qtrue;
+ 		}
+-		return qtrue;
++		return qfalse;  // not capturing: let the menu see Esc / arrows (a gamepad has no mouse to leave the row)
+ 	}
+ 	else
+ 	{
+-		if (g_bindItem == NULL) {
++		if (g_bindItem == NULL || !down) {   // the release of the key that started the capture must not be bound
+ 			return qtrue;
+ 		}
+ 
+--- a/SP/code/ui/ui_main.c
++++ b/SP/code/ui/ui_main.c
+@@ -7070,6 +7070,7 @@
+ }
+ 
+ void _UI_KeyEvent( int key, qboolean down ) {
++	Com_DPrintf( "ui key %d down %d focused '%s'\n", key, down, Menu_GetFocused() ? Menu_GetFocused()->window.name : "(none)" );
+ 
+ 	if ( Menu_Count() > 0 ) {
+ 		menuDef_t *menu = Menu_GetFocused();
+--- a/SP/code/sdl/sdl_input.c
++++ b/SP/code/sdl/sdl_input.c
+@@ -637,6 +637,7 @@
+ 			sent[idx] = 0;
+ 	}
+ 
++	Com_DPrintf( "pad key %d -> %d down %d catcher %d\n", key, out, down, Key_GetCatcher( ) );
+ 	Com_QueueEvent( in_eventTime, SE_KEY, out, down, 0, NULL );
+ }
+ 

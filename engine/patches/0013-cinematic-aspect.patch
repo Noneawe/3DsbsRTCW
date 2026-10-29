@@ -1,0 +1,33 @@
+--- a/SP/code/client/cl_cin.c
++++ b/SP/code/client/cl_cin.c
+@@ -1661,7 +1661,29 @@
+ 	w = cinTable[handle].width;
+ 	h = cinTable[handle].height;
+ 	buf = cinTable[handle].buf;
+-	SCR_AdjustFrom640( &x, &y, &w, &h );
++	if ( handle == CL_handle && Cvar_VariableIntegerValue( "cg_fixedAspect" ) ) {
++		// full-screen engine cinematic (intro, outro): keep the 4:3 proportions, centred (SCR_DrawScreenField
++		// has cleared the sides); in side-by-side stereo it is the same picture in both eyes, on the screen plane
++		float s = cls.glconfig.vidWidth / 640.0f, sy = cls.glconfig.vidHeight / 480.0f, bx = 0, by = 0;
++
++		if ( s > sy ) {
++			s = sy;
++			bx = 0.5f * ( cls.glconfig.vidWidth - 640.0f * s );
++		} else {
++			by = 0.5f * ( cls.glconfig.vidHeight - 480.0f * s );
++		}
++		if ( bx > 0 || by > 0 ) {
++			re.SetColor( &colorBlack[0] );
++			re.DrawStretchPic( 0, 0, cls.glconfig.vidWidth, cls.glconfig.vidHeight, 0, 0, 0, 0, cls.whiteShader );
++			re.SetColor( NULL );
++		}
++		x = x * s + bx;
++		y = y * s + by;
++		w *= s;
++		h *= s;
++	} else {
++		SCR_AdjustFrom640( &x, &y, &w, &h );
++	}
+ 
+ 
+ 	if ( cinTable[handle].letterBox ) {

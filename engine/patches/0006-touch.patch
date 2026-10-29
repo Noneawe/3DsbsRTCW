@@ -1,0 +1,375 @@
+diff --git a/SP/code/client/cl_scrn.c b/SP/code/client/cl_scrn.c
+index 741cb95..2174559 100644
+--- a/SP/code/client/cl_scrn.c
++++ b/SP/code/client/cl_scrn.c
+@@ -531,6 +531,7 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
+ 		case CA_ACTIVE:
+ 			// always supply STEREO_CENTER as vieworg offset is now done by the engine.
+ 			CL_CGameRendering( stereoFrame );
++			CL_TouchDraw();
+ 			SCR_DrawDemoRecording();
+ #ifdef USE_VOIP
+ 			SCR_DrawVoipMeter();
+diff --git a/SP/code/client/cl_touch.c b/SP/code/client/cl_touch.c
+new file mode 100644
+index 0000000..fc4d70f
+--- /dev/null
++++ b/SP/code/client/cl_touch.c
+@@ -0,0 +1,302 @@
++/*
++===========================================================================
++Copyright (C) 2026 3DRTCW contributors
++
++This file is part of the 3DRTCW Android port of the Return to Castle
++Wolfenstein source code (iortcw).
++
++This program is free software: you can redistribute it and/or modify it
++under the terms of the GNU General Public License as published by the Free
++Software Foundation, either version 3 of the License, or (at your option)
++any later version.
++
++This program is distributed in the hope that it will be useful, but WITHOUT
++ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
++more details.
++
++You should have received a copy of the GNU General Public License along
++with this program.  If not, see <https://www.gnu.org/licenses/>.
++===========================================================================
++*/
++/*
++===========================================================================
++Touch controls (Android port): on-screen fallback when no gamepad is connected.
++
++In a game: left part of the screen = floating move stick, right part = look,
++buttons on the right/top. In a menu: a touch is a mouse click at that position.
++Buttons run console commands, so they do not depend on key bindings.
++===========================================================================
++*/
++
++#include "client.h"
++
++typedef struct {
++	float		x, y, w, h;		// screen fraction
++	const char	*label;
++	const char	*down;			// command on press
++	const char	*up;			// command on release (NULL = one shot)
++} touchButton_t;
++
++static const touchButton_t buttons[] = {
++	{ 0.80f, 0.60f, 0.17f, 0.32f, "FIRE",  "+attack",    "-attack" },
++	{ 0.64f, 0.74f, 0.13f, 0.20f, "JUMP",  "+moveup",    "-moveup" },
++	{ 0.50f, 0.74f, 0.13f, 0.20f, "DUCK",  "+movedown",  "-movedown" },
++	{ 0.64f, 0.52f, 0.13f, 0.18f, "USE",   "+activate",  "-activate" },
++	{ 0.50f, 0.52f, 0.13f, 0.18f, "RLD",   "+reload",    "-reload" },
++	{ 0.88f, 0.30f, 0.10f, 0.16f, ">",     "weapnext",   NULL },
++	{ 0.76f, 0.30f, 0.10f, 0.16f, "<",     "weapprev",   NULL },
++	{ 0.02f, 0.02f, 0.12f, 0.12f, "OBJ",   "+scores",    "-scores" },
++	{ 0.44f, 0.02f, 0.12f, 0.12f, "MENU",  NULL,         NULL },	// Escape key
++};
++#define NUM_BUTTONS	( sizeof( buttons ) / sizeof( buttons[0] ) )
++
++#define MAX_FINGERS	6
++enum { ROLE_NONE, ROLE_STICK, ROLE_LOOK, ROLE_BUTTON, ROLE_MENU };
++
++typedef struct {
++	long long	id;
++	int			role;
++	int			button;
++	float		x, y;			// last position, pixels
++	float		ox, oy;			// stick origin, pixels
++	int			half;			// side-by-side: which half of the window the touch started in
++} finger_t;
++
++static finger_t		fingers[MAX_FINGERS];
++static cvar_t		*cl_touch;
++qboolean			cl_gamepadPresent;		// set by the SDL input code
++
++static qboolean touchActive( void ) {
++	if ( !cl_touch ) {
++		cl_touch = Cvar_Get( "cl_touch", "1", CVAR_ARCHIVE );
++	}
++	// cl_touch: 0 = off, 1 = only without a gamepad, 2 = always
++	return ( cl_touch->integer == 2 || ( cl_touch->integer && !cl_gamepadPresent ) ) && clc.state == CA_ACTIVE &&
++		!( Key_GetCatcher() & ( KEYCATCH_UI | KEYCATCH_CONSOLE ) );
++}
++
++static qboolean menuActive( void ) {
++	return ( Key_GetCatcher() & KEYCATCH_UI ) && !( Key_GetCatcher() & KEYCATCH_CONSOLE );
++}
++
++static void runCmd( const char *cmd ) {
++	Cbuf_ExecuteText( EXEC_NOW, va( "%s\n", cmd ) );
++}
++
++// half-SBS squeezes the picture, so horizontal picture pixels are twice a finger's pixels
++static float xScale( void ) {
++	return Cvar_VariableIntegerValue( "r_stereoMode" ) == 1 && Cvar_VariableIntegerValue( "r_stereoHalf" ) ? 0.5f : 1.0f;
++}
++
++static void stickAxes( const finger_t *f, qboolean release ) {
++	float R = cls.glconfig.vidHeight * 0.16f;
++	float dx = release ? 0 : ( f->x - f->ox ) * xScale() / R;
++	float dy = release ? 0 : ( f->y - f->oy ) / R;
++
++	if ( dx > 1 ) dx = 1; else if ( dx < -1 ) dx = -1;
++	if ( dy > 1 ) dy = 1; else if ( dy < -1 ) dy = -1;
++	if ( Q_fabs( dx ) < 0.15f ) dx = 0;
++	if ( Q_fabs( dy ) < 0.15f ) dy = 0;
++
++	// stick up = negative forward axis, like a real stick
++	Com_QueueEvent( Sys_Milliseconds(), SE_JOYSTICK_AXIS, j_side_axis->integer, (int)( dx * 32767 ), 0, NULL );
++	Com_QueueEvent( Sys_Milliseconds(), SE_JOYSTICK_AXIS, j_forward_axis->integer, (int)( dy * 32767 ), 0, NULL );
++}
++
++static void releaseFinger( finger_t *f ) {
++	if ( f->role == ROLE_STICK ) {
++		stickAxes( f, qtrue );
++	} else if ( f->role == ROLE_BUTTON && buttons[f->button].up ) {
++		runCmd( buttons[f->button].up );
++	} else if ( f->role == ROLE_MENU ) {
++		Com_QueueEvent( Sys_Milliseconds(), SE_KEY, K_MOUSE1, qfalse, 0, NULL );
++	}
++	f->role = ROLE_NONE;
++}
++
++// absolute menu cursor: clamp to the corner, then move by the 640x480 position
++static void menuCursor( float px, float py ) {
++	float s = 480.0f / cls.glconfig.vidHeight;
++
++	if ( px < 0 ) px = 0; else if ( px > cls.glconfig.vidWidth ) px = cls.glconfig.vidWidth;
++
++	Com_QueueEvent( Sys_Milliseconds(), SE_MOUSE, -10000, -10000, 0, NULL );
++	// consecutive mouse events are summed by Com_QueueEvent: keep them apart
++	Com_QueueEvent( Sys_Milliseconds(), SE_NONE, 0, 0, 0, NULL );
++	Com_QueueEvent( Sys_Milliseconds(), SE_MOUSE, (int)( px * 640.0f / cls.glconfig.vidWidth ), (int)( py * 480.0f / cls.glconfig.vidHeight ), 0, NULL );
++}
++
++static int hitButton( float px, float py ) {
++	int i;
++	float W = cls.glconfig.vidWidth, H = cls.glconfig.vidHeight;
++
++	for ( i = 0; i < (int)NUM_BUTTONS; i++ ) {
++		if ( px >= buttons[i].x * W && px <= ( buttons[i].x + buttons[i].w ) * W &&
++			 py >= buttons[i].y * H && py <= ( buttons[i].y + buttons[i].h ) * H ) {
++			return i;
++		}
++	}
++	return -1;
++}
++
++/*
++=================
++CL_TouchFrame
++
++Called every frame: lets go of everything held when the touch controls stop being active.
++=================
++*/
++void CL_TouchFrame( void ) {
++	int i;
++	qboolean game = touchActive(), menu = menuActive();
++
++	for ( i = 0; i < MAX_FINGERS; i++ ) {
++		if ( fingers[i].role == ROLE_NONE ) continue;
++		if ( fingers[i].role == ROLE_MENU ? !menu : !game ) {
++			releaseFinger( &fingers[i] );
++		}
++	}
++}
++
++/*
++=================
++CL_TouchEvent
++
++type: 0 down, 1 motion, 2 up. x, y: 0..1 over the window. In side-by-side stereo each half is a full screen.
++=================
++*/
++void CL_TouchEvent( int type, long long id, float x, float y ) {
++	int i, half;
++	finger_t *f = NULL, *freeSlot = NULL;
++	float px, py, W = cls.glconfig.vidWidth, H = cls.glconfig.vidHeight;
++	qboolean game = touchActive(), menu = menuActive(), sbs = qfalse;
++
++	// both SBS modes draw the picture twice side by side (half-SBS squeezes it into one half): the half a touch
++	// started in is the picture; a finger dragged over the middle keeps going instead of wrapping around
++	if ( Cvar_VariableIntegerValue( "r_stereoMode" ) == 1 ) {
++		x *= 2;
++		sbs = qtrue;
++	}
++
++	for ( i = 0; i < MAX_FINGERS; i++ ) {
++		if ( fingers[i].role != ROLE_NONE && fingers[i].id == id ) f = &fingers[i];
++		else if ( fingers[i].role == ROLE_NONE && !freeSlot ) freeSlot = &fingers[i];
++	}
++	half = ( sbs && type != 0 && f ) ? f->half : (int)x;		// 0 or 1 (x is 0..2 in SBS)
++	if ( !sbs ) half = 0; else if ( half > 1 ) half = 1;
++	px = ( x - half ) * W;
++	py = y * H;
++
++	if ( type == 0 ) {
++		if ( f ) releaseFinger( f );
++		if ( !freeSlot ) return;
++		f = freeSlot;
++		f->id = id;
++		f->half = half;
++		f->x = f->ox = px;
++		f->y = f->oy = py;
++
++		if ( menu ) {
++			f->role = ROLE_MENU;
++			menuCursor( px, py );
++			Com_QueueEvent( Sys_Milliseconds(), SE_KEY, K_MOUSE1, qtrue, 0, NULL );
++		} else if ( game ) {
++			int b = hitButton( px, py );
++
++			if ( b >= 0 ) {
++				f->role = ROLE_BUTTON;
++				f->button = b;
++				if ( buttons[b].down ) {
++					runCmd( buttons[b].down );
++				} else {
++					Com_QueueEvent( Sys_Milliseconds(), SE_KEY, K_ESCAPE, qtrue, 0, NULL );
++					Com_QueueEvent( Sys_Milliseconds(), SE_KEY, K_ESCAPE, qfalse, 0, NULL );
++				}
++				if ( !buttons[b].up ) f->role = ROLE_NONE;	// one shot
++			} else if ( px < 0.45f * W ) {
++				f->role = ROLE_STICK;
++			} else {
++				f->role = ROLE_LOOK;
++			}
++		}
++		return;
++	}
++
++	if ( !f ) return;
++
++	if ( type == 1 ) {
++		float dx = px - f->x, dy = py - f->y;
++
++		f->x = px;
++		f->y = py;
++		if ( f->role == ROLE_STICK ) {
++			stickAxes( f, qfalse );
++		} else if ( f->role == ROLE_LOOK ) {
++			Com_QueueEvent( Sys_Milliseconds(), SE_MOUSE, (int)( dx * xScale() * 0.7f ), (int)( dy * 0.7f ), 0, NULL );
++		} else if ( f->role == ROLE_MENU ) {
++			menuCursor( px, py );
++		}
++	} else {
++		releaseFinger( f );
++	}
++}
++
++// real pixels (SCR_FillRect takes 640x480 coordinates)
++static void fillRect( float x, float y, float w, float h, const float *color ) {
++	re.SetColor( color );
++	re.DrawStretchPic( x, y, w, h, 0, 0, 0, 0, cls.whiteShader );
++	re.SetColor( NULL );
++}
++
++// text in real pixels from the console font
++static void drawLabel( float x, float y, float cw, float ch, const char *str, const float *color ) {
++	re.SetColor( color );
++	for ( ; *str; str++, x += cw ) {
++		float fcol = ( *str & 15 ) * 0.0625f, frow = ( *str >> 4 ) * 0.0625f;
++
++		re.DrawStretchPic( x, y, cw, ch, fcol, frow, fcol + 0.0625f, frow + 0.0625f, cls.charSetShader );
++	}
++	re.SetColor( NULL );
++}
++
++/*
++=================
++CL_TouchDraw
++
++Draws the on-screen controls (in game, no gamepad).
++=================
++*/
++void CL_TouchDraw( void ) {
++	int i, j;
++	float W = cls.glconfig.vidWidth, H = cls.glconfig.vidHeight;
++	vec4_t bg = { 1, 1, 1, 0.16f }, bgDown = { 1, 1, 1, 0.42f }, txt = { 1, 1, 1, 0.7f };
++
++	if ( !touchActive() ) {
++		return;
++	}
++
++	for ( i = 0; i < (int)NUM_BUTTONS; i++ ) {
++		float x = buttons[i].x * W, y = buttons[i].y * H, w = buttons[i].w * W, h = buttons[i].h * H;
++		float size = h * 0.28f;
++		qboolean down = qfalse;
++
++		if ( size > w / ( strlen( buttons[i].label ) + 1 ) ) size = w / ( strlen( buttons[i].label ) + 1 );
++		for ( j = 0; j < MAX_FINGERS; j++ ) {
++			if ( fingers[j].role == ROLE_BUTTON && fingers[j].button == i ) down = qtrue;
++		}
++		fillRect( x, y, w, h, down ? bgDown : bg );
++		drawLabel( x + ( w - size * strlen( buttons[i].label ) ) * 0.5f, y + ( h - size ) * 0.5f, size, size,
++			buttons[i].label, txt );
++	}
++
++	for ( j = 0; j < MAX_FINGERS; j++ ) {
++		if ( fingers[j].role == ROLE_STICK ) {
++			float r = H * 0.16f;
++
++			fillRect( fingers[j].ox - r, fingers[j].oy - 2, 2 * r, 4, bg );
++			fillRect( fingers[j].ox - 2, fingers[j].oy - r, 4, 2 * r, bg );
++			fillRect( fingers[j].x - 14, fingers[j].y - 14, 28, 28, bgDown );
++		}
++	}
++}
+diff --git a/SP/code/client/client.h b/SP/code/client/client.h
+index cf12352..2fd5dc2 100644
+--- a/SP/code/client/client.h
++++ b/SP/code/client/client.h
+@@ -662,6 +662,14 @@ void	SCR_DrawBigStringColor( int x, int y, const char *s, vec4_t color, qboolean
+ void	SCR_DrawSmallStringExt( int x, int y, const char *string, float *setColor, qboolean forceColor, qboolean noColorEscape );
+ void    SCR_DrawSmallChar( int x, int y, int ch );
+ 
++//
++// cl_touch.c
++//
++extern qboolean cl_gamepadPresent;
++void	CL_TouchEvent( int type, long long id, float x, float y );
++void	CL_TouchFrame( void );
++void	CL_TouchDraw( void );
++
+ 
+ //
+ // cl_cin.c
+--- a/SP/code/sdl/sdl_input.c
++++ b/SP/code/sdl/sdl_input.c
+@@ -1104,6 +1104,13 @@
+ 				}
+ 				break;
+ 
++			case SDL_FINGERDOWN:
++			case SDL_FINGERMOTION:
++			case SDL_FINGERUP:
++				CL_TouchEvent( e.type == SDL_FINGERDOWN ? 0 : e.type == SDL_FINGERMOTION ? 1 : 2,
++					(long long)e.tfinger.fingerId, e.tfinger.x, e.tfinger.y );
++				break;
++
+ 			case SDL_MOUSEBUTTONDOWN:
+ 			case SDL_MOUSEBUTTONUP:
+ 				{
+@@ -1241,6 +1248,8 @@
+ #endif
+ 
+ 	IN_ProcessEvents( );
++	cl_gamepadPresent = ( gamepad != NULL );
++	CL_TouchFrame( );
+ 
+ 	// Set event time for next frame to earliest possible time an event could happen
+ 	in_eventTime = Sys_Milliseconds( );
+@@ -1284,7 +1293,9 @@
+ #ifndef __ANDROID__
+ 	SDL_StartTextInput( );
+ #else
+-	// on Android the soft keyboard is only wanted for the console / chat (see IN_Frame)
++	// on Android the soft keyboard is only wanted for the console / chat (see IN_Frame);
++	// touches are handled as fingers (cl_touch.c), not as an emulated mouse
++	SDL_SetHint( SDL_HINT_TOUCH_MOUSE_EVENTS, "0" );
+ #endif
+ 
+ 	mouseAvailable = ( in_mouse->value != 0 );

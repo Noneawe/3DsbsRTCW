@@ -1,0 +1,140 @@
+diff --git a/SP/code/sdl/sdl_glimp.c b/SP/code/sdl/sdl_glimp.c
+index 94d1d87..4737fbf 100644
+--- a/SP/code/sdl/sdl_glimp.c
++++ b/SP/code/sdl/sdl_glimp.c
+@@ -35,6 +35,22 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ #include "../sys/sys_local.h"
+ #include "sdl_icon.h"
+ 
++#ifdef USE_GL4ES
++// Desktop GL 2.1 translated to the GLES2 context SDL creates (gl4es built with NOEGL)
++#include "gl4esinit.h"
++#define Q_GetProcAddress gl4es_GetProcAddress
++
++static void GLimp_GL4ES_GetMainFBSize( int *w, int *h ) {
++	SDL_Window *win = SDL_GL_GetCurrentWindow();
++	*w = *h = 0;
++	if ( win ) {
++		SDL_GL_GetDrawableSize( win, w, h );
++	}
++}
++#else
++#define Q_GetProcAddress SDL_GL_GetProcAddress
++#endif
++
+ #ifdef USE_OPENGLES
+ #ifdef USE_LOCAL_HEADERS
+ #	include "EGL/egl.h"
+@@ -309,7 +325,7 @@ static qboolean GLimp_GetProcAddresses( qboolean fixedFunction ) {
+ #ifdef __SDL_NOGETPROCADDR__
+ #define GLE( ret, name, ... ) qgl##name = gl#name;
+ #else
+-#define GLE( ret, name, ... ) qgl##name = (name##proc *) SDL_GL_GetProcAddress("gl" #name); \
++#define GLE( ret, name, ... ) qgl##name = (name##proc *) Q_GetProcAddress("gl" #name); \
+ 	if ( qgl##name == NULL ) { \
+ 		ri.Printf( PRINT_ALL, "ERROR: Missing OpenGL function %s\n", "gl" #name ); \
+ 		success = qfalse; \
+@@ -396,6 +412,11 @@ static qboolean GLimp_GetProcAddresses( qboolean fixedFunction ) {
+ 		QGL_3_0_PROCS;
+ 	}
+ 
++#undef GLE
++
++	// optional: framebuffer objects, used by the renderer for r_renderScale (missing = scaling off)
++#define GLE( ret, name, ... ) qgl##name = (name##proc *) Q_GetProcAddress("gl" #name);
++	QGL_ARB_framebuffer_object_PROCS;
+ #undef GLE
+ 
+ 	return success;
+@@ -482,11 +503,14 @@ static int GLimp_SetMode(int mode, qboolean fullscreen, qboolean noborder, qbool
+ 	// If a window exists, note its display index
+ 	if( SDL_window != NULL )
+ 	{
+-		display = SDL_GetWindowDisplayIndex( SDL_window );
+-		if( display < 0 )
++		int windowDisplay = SDL_GetWindowDisplayIndex( SDL_window );
++		if( windowDisplay < 0 )
+ 		{
++			// keep display 0: otherwise mode -2 falls back to 640x480 after a vid_restart on Android
+ 			ri.Printf( PRINT_DEVELOPER, "SDL_GetWindowDisplayIndex() failed: %s\n", SDL_GetError() );
+ 		}
++		else
++			display = windowDisplay;
+ 	}
+ 
+ 	if( display >= 0 && SDL_GetDesktopDisplayMode( display, &desktopMode ) == 0 )
+@@ -541,6 +565,9 @@ static int GLimp_SetMode(int mode, qboolean fullscreen, qboolean noborder, qbool
+ 	if( SDL_glContext != NULL )
+ 	{
+ 		GLimp_ClearProcAddresses();
++#ifdef USE_GL4ES
++		close_gl4es();
++#endif
+ 		SDL_GL_DeleteContext( SDL_glContext );
+ 		SDL_glContext = NULL;
+ 	}
+@@ -719,6 +746,11 @@ static int GLimp_SetMode(int mode, qboolean fullscreen, qboolean noborder, qbool
+ 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 1);
+ 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+ #endif
++#ifdef USE_GL4ES
++		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
++		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
++		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
++#endif
+ 
+ 		if (!fixedFunction)
+ 		{
+@@ -786,6 +818,12 @@ static int GLimp_SetMode(int mode, qboolean fullscreen, qboolean noborder, qbool
+ 				continue;
+ 			}
+ 
++#ifdef USE_GL4ES
++			set_getprocaddress( SDL_GL_GetProcAddress );
++			set_getmainfbsize( GLimp_GL4ES_GetMainFBSize );
++			initialize_gl4es();
++#endif
++
+ 			if ( !GLimp_GetProcAddresses( fixedFunction ) )
+ 			{
+ 				ri.Printf( PRINT_ALL, "GLimp_GetProcAddresses() failed\n" );
+@@ -1001,9 +1039,9 @@ static void GLimp_InitExtensions( qboolean fixedFunction )
+ 		{
+ 			if ( r_ext_multitexture->value )
+ 			{
+-				qglMultiTexCoord2fARB = SDL_GL_GetProcAddress( "glMultiTexCoord2fARB" );
+-				qglActiveTextureARB = SDL_GL_GetProcAddress( "glActiveTextureARB" );
+-				qglClientActiveTextureARB = SDL_GL_GetProcAddress( "glClientActiveTextureARB" );
++				qglMultiTexCoord2fARB = Q_GetProcAddress( "glMultiTexCoord2fARB" );
++				qglActiveTextureARB = Q_GetProcAddress( "glActiveTextureARB" );
++				qglClientActiveTextureARB = Q_GetProcAddress( "glClientActiveTextureARB" );
+ 
+ 				if ( qglActiveTextureARB )
+ 				{
+@@ -1040,8 +1078,8 @@ static void GLimp_InitExtensions( qboolean fixedFunction )
+ 			if ( r_ext_compiled_vertex_array->value )
+ 			{
+ 				ri.Printf( PRINT_ALL, "...using GL_EXT_compiled_vertex_array\n" );
+-				qglLockArraysEXT = ( void ( APIENTRY * )( GLint, GLint ) ) SDL_GL_GetProcAddress( "glLockArraysEXT" );
+-				qglUnlockArraysEXT = ( void ( APIENTRY * )( void ) ) SDL_GL_GetProcAddress( "glUnlockArraysEXT" );
++				qglLockArraysEXT = ( void ( APIENTRY * )( GLint, GLint ) ) Q_GetProcAddress( "glLockArraysEXT" );
++				qglUnlockArraysEXT = ( void ( APIENTRY * )( void ) ) Q_GetProcAddress( "glUnlockArraysEXT" );
+ 				if (!qglLockArraysEXT || !qglUnlockArraysEXT)
+ 				{
+ 					ri.Error (ERR_FATAL, "bad getprocaddress");
+@@ -1114,7 +1152,15 @@ void GLimp_Init( qboolean fixedFunction )
+ 	r_allowResize = ri.Cvar_Get( "r_allowResize", "0", CVAR_ARCHIVE | CVAR_LATCH );
+ 	r_centerWindow = ri.Cvar_Get( "r_centerWindow", "0", CVAR_ARCHIVE | CVAR_LATCH );
+ 
++#ifdef __ANDROID__
++	// Always the native fullscreen size (r_renderScale scales the rendering). Android apps are routinely killed
++	// (swipe away, force stop): that must not drop us to 640x480 windowed, and that value must not stay saved
++	ri.Cvar_Set( "r_mode", "-2" );
++	ri.Cvar_Set( "r_fullscreen", "1" );
++	if( qfalse )
++#else
+ 	if( ri.Cvar_VariableIntegerValue( "com_abnormalExit" ) )
++#endif
+ 	{
+ 		ri.Cvar_Set( "r_mode", va( "%d", R_MODE_FALLBACK ) );
+ 		ri.Cvar_Set( "r_fullscreen", "0" );

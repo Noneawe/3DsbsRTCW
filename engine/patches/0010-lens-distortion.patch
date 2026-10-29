@@ -1,0 +1,145 @@
+--- a/SP/code/renderer/tr_backend.c
++++ b/SP/code/renderer/tr_backend.c
+@@ -1467,6 +1467,11 @@
+ 
+ 	cmd = (const drawBufferCommand_t *)data;
+ 
++	// finish the 2D drawing of the previous eye while its viewport is still set
++	if ( tess.numIndexes ) {
++		RB_EndSurface();
++	}
++
+ 	// one eye is vidWidth wide, or half of it in half-SBS (squeezed) mode
+ 	backEnd.sbsOffsetX = ( ( r_stereoMode->integer == 1 ) && cmd->stereoFrame == STEREO_RIGHT ) ?
+ 		( r_stereoHalf->integer ? glConfig.vidWidth / 2 : glConfig.vidWidth ) : 0;
+@@ -1640,12 +1645,64 @@
+ 	glState.currenttextures[glState.currenttmu] = -1;	// not the texture GL_Bind thinks it is
+ 
+ 	qglColor4f( 1, 1, 1, 1 );
+-	qglBegin( GL_QUADS );
+-	qglTexCoord2f( 0, 0 );	qglVertex2f( 0, 0 );
+-	qglTexCoord2f( 1, 0 );	qglVertex2f( 1, 0 );
+-	qglTexCoord2f( 1, 1 );	qglVertex2f( 1, 1 );
+-	qglTexCoord2f( 0, 1 );	qglVertex2f( 0, 1 );
+-	qglEnd();
++	if ( R_LensWanted() ) {
++		// Side by side: each eye (left / right half of the window) is drawn from its own half of the offscreen picture
++		// into a rectangle of its half that is shrunk by r_stereoMargin and moved toward the screen centre by
++		// r_stereoShift (both relative to the eye), so the picture can sit on the viewer's lens axis (IPD) and fit its
++		// opening. With r_stereoLens the output point p samples the picture at c + d * f(r) / f(re), r = |d| relative to
++		// the half diagonal of the eye, f(r) = 1 + k1 r^2 + k2 r^4, re = r at the nearest edge of the eye: a barrel
++		// pre-distortion that keeps the whole eye picture visible. Points that would sample outside it (the corners)
++		// are black, like the area outside a viewer's lens. Anything outside the eye's half is cut by the scissor.
++		enum { N = 32 };
++		float k1 = r_stereoLens->integer ? r_lensStrength->value * 0.022f : 0, k2 = r_stereoLens->integer ? r_lensStrength->value * 0.024f : 0;
++		float ar = (float)r_nativeWidth * 0.5f / r_nativeHeight;	// eye width / height
++		float hd = sqrtf( ar * ar + 1 ) * 0.5f;						// half diagonal in eye heights
++		float re = ( ar < 1 ? ar : 1 ) * 0.5f / hd;
++		float fn = 1 + k1 * re * re + k2 * re * re * re * re;
++		float m = 1 - r_stereoMargin->value;
++		int eye, i, j;
++
++		qglScissor( 0, 0, r_nativeWidth, r_nativeHeight );
++		qglClearColor( 0, 0, 0, 1 );
++		qglClear( GL_COLOR_BUFFER_BIT );
++
++		for ( eye = 0; eye < 2; eye++ ) {
++			float x0 = eye * 0.5f;
++			float cx = 0.5f + ( eye ? -1 : 1 ) * r_stereoShift->value;	// picture centre in the eye, 0..1
++
++			qglScissor( eye * ( r_nativeWidth / 2 ), 0, r_nativeWidth / 2, r_nativeHeight );
++			qglBegin( GL_QUADS );
++			for ( j = 0; j < N; j++ ) {
++				for ( i = 0; i < N; i++ ) {
++					int c;
++					for ( c = 0; c < 4; c++ ) {
++						int u = i + ( c == 1 || c == 2 ), v = j + ( c >= 2 );
++						float px = (float)u / N, py = (float)v / N;			// 0..1 over the picture
++						float dx = ( px - 0.5f ) * ar, dy = py - 0.5f;			// eye heights from the centre
++						float r2 = ( dx * dx + dy * dy ) / ( hd * hd );
++						float s = ( 1 + k1 * r2 + k2 * r2 * r2 ) / fn;
++						float tx = 0.5f + ( px - 0.5f ) * s, ty = 0.5f + dy * s;	// 0..1 over the eye picture
++						float in = ( tx >= 0 && tx <= 1 && ty >= 0 && ty <= 1 ) ? 1.0f : 0.0f;
++
++						tx = tx < 0 ? 0 : tx > 1 ? 1 : tx;
++						ty = ty < 0 ? 0 : ty > 1 ? 1 : ty;
++						qglColor4f( in, in, in, 1 );
++						qglTexCoord2f( x0 + tx * 0.5f, ty );
++						qglVertex2f( x0 + ( cx + ( px - 0.5f ) * m ) * 0.5f, 0.5f + ( py - 0.5f ) * m );
++					}
++				}
++			}
++			qglEnd();
++		}
++		qglScissor( 0, 0, r_nativeWidth, r_nativeHeight );
++	} else {
++		qglBegin( GL_QUADS );
++		qglTexCoord2f( 0, 0 );	qglVertex2f( 0, 0 );
++		qglTexCoord2f( 1, 0 );	qglVertex2f( 1, 0 );
++		qglTexCoord2f( 1, 1 );	qglVertex2f( 1, 1 );
++		qglTexCoord2f( 0, 1 );	qglVertex2f( 0, 1 );
++		qglEnd();
++	}
+ 
+ 	backEnd.projection2D = qfalse;
+ }
+@@ -1662,6 +1719,8 @@
+ 	// finish any 2D drawing if needed
+ 	if ( tess.numIndexes ) {
+ 		RB_EndSurface();
++		// without this the last batch of the frame (HUD / scoreboard text) was not shown under gl4es
++		qglFlush();
+ 	}
+ 
+ 	// texture swapping test
+--- a/SP/code/renderer/tr_init.c
++++ b/SP/code/renderer/tr_init.c
+@@ -68,6 +68,10 @@
+ cvar_t	*r_stereoConvergence;
+ cvar_t	*r_stereoHalf;
+ cvar_t	*r_renderScale;
++cvar_t	*r_stereoLens;
++cvar_t	*r_stereoShift;
++cvar_t	*r_stereoMargin;
++cvar_t	*r_lensStrength;
+ qboolean	r_fboActive;
+ GLuint	r_fbo, r_fboTex, r_fboDepth;
+ int	r_nativeWidth, r_nativeHeight;
+@@ -1300,6 +1304,13 @@
+ 	r_stereoHalf = ri.Cvar_Get( "r_stereoHalf", "0", CVAR_ARCHIVE | CVAR_LATCH );
+ 	r_renderScale = ri.Cvar_Get( "r_renderScale", "1", CVAR_ARCHIVE | CVAR_LATCH );
+ 	ri.Cvar_CheckRange( r_renderScale, 0.25f, 1, qfalse );
++	r_stereoLens = ri.Cvar_Get( "r_stereoLens", "1", CVAR_ARCHIVE );
++	r_stereoShift = ri.Cvar_Get( "r_stereoShift", "0.15", CVAR_ARCHIVE );
++	ri.Cvar_CheckRange( r_stereoShift, -0.3f, 0.3f, qfalse );
++	r_stereoMargin = ri.Cvar_Get( "r_stereoMargin", "0.26", CVAR_ARCHIVE );
++	ri.Cvar_CheckRange( r_stereoMargin, 0, 0.5f, qfalse );
++	r_lensStrength = ri.Cvar_Get( "r_lensStrength", "8", CVAR_ARCHIVE );
++	ri.Cvar_CheckRange( r_lensStrength, 0, 20, qfalse );
+ 	r_stereoConvergence = ri.Cvar_Get( "r_stereoConvergence", "64", CVAR_ARCHIVE );
+ 	ri.Cvar_CheckRange( r_stereoConvergence, 1, 4096, qfalse );
+ //----(SA)	added
+@@ -1541,7 +1552,7 @@
+ 	r_fboActive = qfalse;
+ 	r_fbo = r_fboTex = r_fboDepth = 0;
+ 
+-	if ( r_renderScale->value >= 0.99f ) {
++	if ( r_renderScale->value >= 0.99f && !R_LensWanted() ) {
+ 		return;
+ 	}
+ 	if ( !qglGenFramebuffers || !qglBindFramebuffer || !qglFramebufferTexture2D || !qglGenRenderbuffers ) {
+--- a/SP/code/renderer/tr_local.h
++++ b/SP/code/renderer/tr_local.h
+@@ -1174,6 +1174,12 @@
+ extern GLuint	r_fbo, r_fboTex;
+ extern int	r_nativeWidth, r_nativeHeight;
+ void R_FboInit( void );
++extern cvar_t	*r_stereoLens;			// SBS: 1 = barrel pre-distortion for viewer lenses (Cardboard), live
++extern cvar_t	*r_lensStrength;		// distortion strength, 0 - 20 (k1 = 0.022 x, k2 = 0.024 x), live
++extern cvar_t	*r_stereoShift;			// SBS: each eye's picture moves toward the screen centre by this fraction of its half (live)
++extern cvar_t	*r_stereoMargin;		// SBS: each eye's picture is shrunk by this fraction, leaving black margins (live)
++// side-by-side is always drawn offscreen and presented per eye (lens distortion, shift, margin)
++#define R_LensWanted()	( r_stereoMode->integer == 1 )
+ void R_FboShutdown( void );
+ void RB_PresentFbo( void );
+ extern cvar_t   *r_zfar;                // far Z clip plane

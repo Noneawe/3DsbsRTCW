@@ -1,0 +1,143 @@
+--- a/SP/code/cgame/cg_local.h
++++ b/SP/code/cgame/cg_local.h
+@@ -1679,6 +1679,7 @@
+ extern vmCvar_t cg_fixedAspect;
+ extern vmCvar_t cg_fixedAspectFOV;
+ extern vmCvar_t cg_hudCenter;
++extern vmCvar_t cg_aimAssist;
+ void CG_SetEdgePlacement( qboolean on );
+ extern vmCvar_t cg_oldWolfUI;
+ extern vmCvar_t cg_drawStatusHead;
+--- a/SP/code/cgame/cg_main.c
++++ b/SP/code/cgame/cg_main.c
+@@ -169,6 +169,7 @@
+ vmCvar_t cg_fixedAspect;
+ vmCvar_t cg_fixedAspectFOV;
+ vmCvar_t cg_hudCenter;
++vmCvar_t cg_aimAssist;
+ vmCvar_t cg_oldWolfUI;
+ vmCvar_t cg_drawStatusHead;
+ vmCvar_t cg_zoomFov;
+@@ -306,6 +307,7 @@
+ 	{ &cg_fixedAspect, "cg_fixedAspect", "2", CVAR_ARCHIVE | CVAR_LATCH }, // Essentially the same as setting DF_FIXED_FOV for widescreen aspects
+ 	{ &cg_fixedAspectFOV, "cg_fixedAspectFOV", "0", CVAR_ARCHIVE },
+ 	{ &cg_hudCenter, "cg_hudCenter", "1", CVAR_ARCHIVE },
++	{ &cg_aimAssist, "cg_aimAssist", "0.6", CVAR_ARCHIVE },
+ 	{ &cg_oldWolfUI, "cg_oldWolfUI", "0", CVAR_ARCHIVE },
+ 	{ &cg_drawStatusHead, "cg_drawStatusHead", "0", CVAR_ARCHIVE },
+ 	{ &cg_viewsize, "cg_viewsize", "100", CVAR_ARCHIVE },
+--- a/SP/code/cgame/cg_view.c
++++ b/SP/code/cgame/cg_view.c
+@@ -1444,6 +1444,63 @@
+ Generates and draws a game scene and status information at the given time.
+ =================
+ */
++/*
++=================
++CG_AimAssist
++
++Single player, gamepad: slow the stick look down while the crosshair is near a visible enemy, so small
++corrections are possible. Hands the factor to the client through j_aimScale (see CL_JoystickMove).
++Strength is cg_aimAssist (0 = off, 1 = look speed drops to 35%).
++=================
++*/
++static void CG_AimAssist( void ) {
++	static float lastScale = 1;
++	float scale = 1, bestAng = 1e9f;
++	int num;
++	vec3_t start;
++
++	if ( cg_aimAssist.value > 0 && cgs.gametype == GT_SINGLE_PLAYER && cg.snap && !cg.cameraMode
++		 && cg.snap->ps.pm_type == PM_NORMAL && !( cg.snap->ps.eFlags & EF_DEAD ) ) {
++		VectorCopy( cg.refdef.vieworg, start );
++
++		for ( num = 0; num < cg.snap->numEntities; num++ ) {
++			entityState_t *es = &cg.snap->entities[num];
++			vec3_t dir, tgt;
++			trace_t tr;
++			float dist, ang;
++
++			// live AI soldiers / monsters of another team than the player
++			if ( es->eType != ET_PLAYER || ( es->eFlags & EF_DEAD ) || es->teamNum == cg.snap->ps.teamNum
++				 || es->teamNum == 7 /* AITEAM_NEUTRAL */ || es->number == cg.snap->ps.clientNum ) {
++				continue;
++			}
++			VectorCopy( cg_entities[es->number].lerpOrigin, tgt );
++			tgt[2] += 36;   // chest
++			VectorSubtract( tgt, start, dir );
++			dist = VectorNormalize( dir );
++			if ( dist < 1 || dist > 3000 ) {
++				continue;
++			}
++			ang = acos( DotProduct( dir, cg.refdef.viewaxis[0] ) );
++			// target radius ~ 22 units seen from dist, plus a little margin
++			if ( ang > atan2( 22, dist ) + 0.03f || ang >= bestAng ) {
++				continue;
++			}
++			CG_Trace( &tr, start, vec3_origin, vec3_origin, tgt, cg.snap->ps.clientNum, CONTENTS_SOLID );
++			if ( tr.fraction < 0.99f ) {
++				continue;
++			}
++			bestAng = ang;
++			scale = 1.0f - 0.65f * ( cg_aimAssist.value > 1 ? 1 : cg_aimAssist.value );
++		}
++	}
++
++	if ( scale != lastScale ) {
++		lastScale = scale;
++		trap_Cvar_Set( "j_aimScale", va( "%.2f", scale ) );
++	}
++}
++
+ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demoPlayback ) {
+ 	int inwater;
+ 
+@@ -1548,6 +1605,7 @@
+ 
+ 	// build cg.refdef
+ 	inwater = CG_CalcViewValues();
++	CG_AimAssist();
+ 
+ 	CG_CalcShakeCamera();
+ 	CG_ApplyShakeCamera();
+--- a/SP/code/client/client.h
++++ b/SP/code/client/client.h
+@@ -430,6 +430,7 @@
+ 
+ extern	cvar_t	*j_lookScale;
+ extern	cvar_t	*j_invertY;
++extern	cvar_t	*j_aimScale;
+ extern	cvar_t	*j_pitch;
+ extern	cvar_t	*j_yaw;
+ extern	cvar_t	*j_forward;
+--- a/SP/code/client/cl_main.c
++++ b/SP/code/client/cl_main.c
+@@ -103,6 +103,7 @@
+ 
+ cvar_t	*j_lookScale;
+ cvar_t	*j_invertY;
++cvar_t	*j_aimScale;
+ cvar_t	*j_pitch;
+ cvar_t	*j_yaw;
+ cvar_t	*j_forward;
+@@ -3729,6 +3730,7 @@
+ 
+ 	j_lookScale =    Cvar_Get ("j_lookScale",    "1", CVAR_ARCHIVE);
+ 	j_invertY =      Cvar_Get ("j_invertY",      "0", CVAR_ARCHIVE);
++	j_aimScale =     Cvar_Get ("j_aimScale",     "1", CVAR_TEMP);	// set by cgame (aim assist)
+ 	j_pitch =        Cvar_Get ("j_pitch",        "0.022", CVAR_ARCHIVE);
+ 	j_yaw =          Cvar_Get ("j_yaw",          "-0.022", CVAR_ARCHIVE);
+ 	j_forward =      Cvar_Get ("j_forward",      "-0.25", CVAR_ARCHIVE);
+--- a/SP/code/client/cl_input.c
++++ b/SP/code/client/cl_input.c
+@@ -446,8 +446,8 @@
+ 	float up      = j_up->value      * cl.joystickAxis[j_up_axis->integer];
+ 
+ 	// gamepad settings screen: look speed and invert Y (both stick axes feed yaw / pitch through these)
+-	yaw   *= j_lookScale->value;
+-	pitch *= j_lookScale->value;
++	yaw   *= j_lookScale->value * j_aimScale->value;
++	pitch *= j_lookScale->value * j_aimScale->value;
+ 	if ( j_invertY->integer ) {
+ 		pitch = -pitch;
+ 	}

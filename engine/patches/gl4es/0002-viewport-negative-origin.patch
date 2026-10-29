@@ -1,0 +1,20 @@
+--- a/src/gl/raster.c
++++ b/src/gl/raster.c
+@@ -100,7 +100,7 @@
+ 		if (glstate->raster.bm_drawing)	bitmap_flush();
+     	LOAD_GLES(glViewport);
+ 		gles_glViewport(x, y, width, height);
+-    if (x >= 0 && y >= 0 && width >= 0 && height >= 0) {
++    if (width >= 0 && height >= 0) {	// x, y may be negative (ioq3 model previews)
+ 		  glstate->raster.viewport.x = x;
+ 		  glstate->raster.viewport.y = y;
+ 		  glstate->raster.viewport.width = width;
+@@ -145,7 +145,7 @@
+     	LOAD_GLES(glScissor);
+ 		gles_glScissor(x, y, width, height);
+ 
+-    if (x >= 0 && y >= 0 && width >= 0 && height >= 0) {
++    if (width >= 0 && height >= 0) {	// x, y may be negative (ioq3 model previews)
+ 		  glstate->raster.scissor.x = x;
+ 		  glstate->raster.scissor.y = y;
+ 		  glstate->raster.scissor.width = width;
